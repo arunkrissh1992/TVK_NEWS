@@ -17,8 +17,18 @@ python -m pytest
 
 ## Run Daily News Pipeline
 
-Available after the upcoming Milestone 1 CLI entrypoint task:
-
 ```powershell
 python pipelines/run_daily_news.py --date 2026-05-21
 ```
+
+## Operator Dashboard
+
+Run the API:
+
+```powershell
+uvicorn apps.api.main:app --host 127.0.0.1 --port 8000
+```
+
+The internal review console is available at `http://127.0.0.1:8000/dashboard`.
+
+For confidential deployments, set `OPERATOR_API_TOKEN` and send the token as `X-TNMI-Operator-Token` for dashboard and review APIs. This is a first local guard only; production deployments still need SSO/RBAC, private networking, audit logs, and managed secrets.

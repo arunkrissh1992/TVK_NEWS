@@ -172,3 +172,23 @@ def test_dashboard_html_renders_summary_and_review_queue(monkeypatch, tmp_path):
     assert "TN Media Intelligence" in response.text
     assert "Needs review." in response.text
     assert "Pending Review" in response.text
+
+
+def test_operator_token_blocks_confidential_dashboard_endpoint(monkeypatch, tmp_path):
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'api-auth.db'}")
+    init_db(session_factory)
+
+    class FakeSettings:
+        database_url = f"sqlite:///{tmp_path / 'api-auth.db'}"
+        news_source_config = tmp_path / "missing.yaml"
+        report_output_dir = tmp_path / "reports"
+        operator_api_token = "secret-token"
+
+    monkeypatch.setattr(api_main, "Settings", FakeSettings)
+    client = TestClient(app)
+
+    blocked = client.get("/dashboard/summary")
+    allowed = client.get("/dashboard/summary", headers={"X-TNMI-Operator-Token": "secret-token"})
+
+    assert blocked.status_code == 401
+    assert allowed.status_code == 200
