@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
 from tnmi import __version__
@@ -19,6 +22,9 @@ from tnmi.storage import (
 )
 
 app = FastAPI(title="Tamil Nadu Media Intelligence API", version=__version__)
+BASE_DIR = Path(__file__).resolve().parent
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
 def require_operator(x_tnmi_operator_token: str | None = Header(default=None)) -> None:
@@ -111,6 +117,16 @@ def reports() -> list[dict[str, str]]:
     if not report_dir.exists():
         return []
     return [{"filename": path.name} for path in sorted(report_dir.glob("*.md")) if path.is_file()]
+
+
+@app.get("/dashboard", response_class=HTMLResponse, dependencies=[Depends(require_operator)])
+def dashboard_page(request: Request) -> HTMLResponse:
+    settings = Settings()
+    session_factory = create_session_factory(settings.database_url)
+    with session_factory() as session:
+        summary = get_dashboard_summary(session)
+        queue = list_review_queue(session, limit=50)
+    return templates.TemplateResponse(request, "dashboard.html", {"summary": summary, "queue": queue})
 
 
 @app.get("/dashboard/summary", dependencies=[Depends(require_operator)])

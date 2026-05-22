@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TN Media Intelligence</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Confidential Operator Console</p>
+          <h1>TN Media Intelligence</h1>
+        </div>
+        <div class="status-pill">Newspaper Review</div>
+      </header>
+
+      <section class="metric-grid" aria-label="Dashboard summary">
+        <article><span>Total Items</span><strong>{{ summary.total_items }}</strong></article>
+        <article><span>Analyses</span><strong>{{ summary.total_analyses }}</strong></article>
+        <article><span>Pending Review</span><strong>{{ summary.pending_review }}</strong></article>
+        <article><span>Reviewed</span><strong>{{ summary.reviewed }}</strong></article>
+      </section>
+
+      <section class="split">
+        <div>
+          <h2>Stance</h2>
+          <dl>
+            {% for label, count in summary.stance_counts.items() %}
+              <div><dt>{{ label }}</dt><dd>{{ count }}</dd></div>
+            {% endfor %}
+          </dl>
+        </div>
+        <div>
+          <h2>Severity</h2>
+          <dl>
+            {% for label, count in summary.severity_counts.items() %}
+              <div><dt>{{ label }}</dt><dd>{{ count }}</dd></div>
+            {% endfor %}
+          </dl>
+        </div>
+      </section>
+
+      <section>
+        <h2>Pending Review</h2>
+        <div class="queue">
+          {% for item in queue %}
+            <article class="queue-item">
+              <div class="queue-meta">
+                <span>{{ item.source_name }}</span>
+                <span>{{ item.department }}</span>
+                <span>{{ item.district }}</span>
+                <span>{{ item.severity }}</span>
+              </div>
+              <h3>{{ item.title or "Untitled item" }}</h3>
+              <p>{{ item.summary }}</p>
+              <a href="{{ item.source_url }}" rel="noreferrer" target="_blank">Open source</a>
+            </article>
+          {% else %}
+            <p class="empty">No pending review items.</p>
+          {% endfor %}
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

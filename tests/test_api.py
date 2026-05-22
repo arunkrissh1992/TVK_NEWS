@@ -141,3 +141,34 @@ def test_review_decision_endpoint_records_latest_review(monkeypatch, tmp_path):
     assert response.json()["status"] == "approved"
     assert latest.status_code == 200
     assert latest.json()["reviewer_name"] == "analyst-1"
+
+
+def test_dashboard_html_renders_summary_and_review_queue(monkeypatch, tmp_path):
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'api-html.db'}")
+    init_db(session_factory)
+    with session_factory() as session:
+        raw = save_raw_item(session, make_item())
+        save_ai_analysis(
+            session,
+            raw.id,
+            make_analysis().model_copy(update={"needs_human_review": True, "summary_english": "Needs review."}),
+            model_name="mock",
+            prompt_version="v1",
+        )
+        session.commit()
+
+    class FakeSettings:
+        database_url = f"sqlite:///{tmp_path / 'api-html.db'}"
+        news_source_config = tmp_path / "missing.yaml"
+        report_output_dir = tmp_path / "reports"
+        operator_api_token = None
+
+    monkeypatch.setattr(api_main, "Settings", FakeSettings)
+    client = TestClient(app)
+
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    assert "TN Media Intelligence" in response.text
+    assert "Needs review." in response.text
+    assert "Pending Review" in response.text
