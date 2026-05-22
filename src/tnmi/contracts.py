@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -32,6 +33,19 @@ class Stance(StrEnum):
     MIXED = "mixed"
 
 
+class Sentiment(StrEnum):
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+    NEUTRAL = "neutral"
+
+
+class Severity(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
 class NewspaperSource(BaseModel):
     name: str
     source_type: SourceType = SourceType.NEWS
@@ -47,6 +61,7 @@ class NewspaperSource(BaseModel):
 class NormalizedItem(BaseModel):
     source_type: SourceType
     source_name: str
+    # Original source locator; may be an HTTP URL or a provider/manual upload locator.
     source_url: str
     published_at: datetime | None = None
     language: str
@@ -56,27 +71,30 @@ class NormalizedItem(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def content_hash_input(self) -> str:
-        return "|".join(
-            [
-                self.source_type.value,
-                self.source_url,
-                self.title or "",
-                self.clean_text_original,
-            ]
+        return json.dumps(
+            {
+                "source_type": self.source_type.value,
+                "source_url": self.source_url,
+                "title": self.title or "",
+                "clean_text_original": self.clean_text_original,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
         )
 
 
 class AIAnalysis(BaseModel):
     government_relevance: GovernmentRelevance
     stance_toward_government: Stance
-    sentiment: str
+    sentiment: Sentiment
     target: str
     department: str
     district: str
     scheme: str | None = None
     topic: str
     issue_category: str
-    severity: str
+    severity: Severity
     summary_original: str
     summary_english: str
     positive_points: list[str] = Field(default_factory=list)
