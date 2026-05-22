@@ -23,9 +23,10 @@ newspapers:
   - name: Dinamani
     language_hint: ta
     priority: 1
-    active: false
-    rss_urls: []
+    active: true
+    rss_urls:
+      - https://www.dinamani.com/rss
     sitemap_urls: []
     section_urls:
       - https://www.dinamani.com/
-    legal_notes: Inactive for Milestone 1; pending approved RSS/sitemap configuration.
+    legal_notes: Public RSS source; verify production access and terms before launch.

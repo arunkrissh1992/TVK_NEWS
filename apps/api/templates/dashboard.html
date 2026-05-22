@@ -3,205 +3,94 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Tamil Nadu Public Media Intelligence</title>
+    <title>TVK Public Media Briefing</title>
     <link rel="stylesheet" href="/static/dashboard.css">
     <script src="/static/dashboard.js" defer></script>
   </head>
-  <body class="dashboard-page">
+  <body class="dashboard-page official-briefing-page">
     <header class="site-header">
       <div class="shell masthead">
         <div class="brand-block">
-          <div class="brand-emblem" aria-hidden="true">TN</div>
+          <div class="brand-emblem" aria-hidden="true">TVK</div>
           <div>
-            <p class="eyebrow">Confidential Public Media Intelligence</p>
-            <h1>Tamil Nadu Public Media Intelligence</h1>
-            <p class="subtitle">Daily evidence review for newspapers, social media, video, OCR and transcripts</p>
+            <p class="eyebrow">Confidential Daily Briefing</p>
+            <h1>TVK Public Media Briefing</h1>
+            <p class="subtitle">Newspaper portrayal of TVK, public representatives and people’s issues</p>
           </div>
         </div>
         <div class="status-card">
-          <span>Daily Intelligence</span>
-          <strong>Newspaper Review</strong>
+          <span>Pilot Coverage</span>
+          <strong>{{ summary.source_count }} newspapers</strong>
         </div>
       </div>
-      <nav class="nav-strip" aria-label="Dashboard sections">
+      <nav class="nav-strip" aria-label="Briefing sections">
         <div class="shell nav-list">
-          <a href="/dashboard">Home</a>
-          <a href="/dashboard/summary">Summary API</a>
-          <a href="/review/queue">Review Queue</a>
-          <a href="/reports">Reports</a>
-          <a href="/settings">Settings</a>
+          <a href="#overview">Overview</a>
+          <a href="#narratives">Narratives</a>
+          <a href="#people">People Issues</a>
+          <a href="#evidence">Evidence</a>
         </div>
       </nav>
     </header>
 
     <main class="shell">
-      <section class="notice-band">
-        <strong>Operator Console</strong>
-        <span>AI findings are evidence-backed working intelligence and require human review for sensitive claims.</span>
-      </section>
-
-      <section class="investigation-hero">
-        <div>
-          <p class="section-kicker">Live Newspaper Demo</p>
-          <h2>Investigation Desk</h2>
-          <p>Monitor AI-classified public media, inspect original Tamil evidence, and prepare review-ready daily intelligence.</p>
+      <section id="overview" class="briefing-hero">
+        <div class="briefing-copy">
+          <p class="section-kicker">Today’s Newspaper Reading</p>
+          <h2>What is being said, why it matters, and the source evidence behind it.</h2>
+          <p>
+            This view is prepared for officials. It separates positive coverage, negative coverage,
+            mixed signals and people’s problems, with Tamil and English summaries wherever analysis is available.
+          </p>
         </div>
-        <div class="hero-stats" aria-label="Investigation status">
-          <span>{{ summary.total_items }} items</span>
-          <span>{{ summary.total_chunks }} chunks</span>
-          <span>{{ summary.pending_review }} pending</span>
-          <span>{{ settings_status.openai_secret_status }}</span>
+        <div class="briefing-snapshot" aria-label="Briefing snapshot">
+          <span>{{ summary.total_items }}</span>
+          <strong>articles reviewed</strong>
+          <small>{{ summary.source_count }} newspaper sources in pilot</small>
         </div>
       </section>
 
-      <section class="metric-grid" aria-label="Dashboard summary">
-        <article class="metric-card metric-card-primary"><span>Total Items</span><strong>{{ summary.total_items }}</strong></article>
-        <article class="metric-card"><span>Analyses</span><strong>{{ summary.total_analyses }}</strong></article>
-        <article class="metric-card metric-card-success"><span>OpenAI Live</span><strong>{{ summary.openai_analyses }}</strong></article>
-        <article class="metric-card"><span>RAG Chunks</span><strong>{{ summary.total_chunks }}</strong></article>
-        <article class="metric-card"><span>Embeddings</span><strong>{{ summary.total_embeddings }}</strong></article>
-        <article class="metric-card metric-card-warning"><span>Pending Review</span><strong>{{ summary.pending_review }}</strong></article>
-      </section>
-
-      <section class="official-grid" aria-label="Official demo readiness">
-        <article class="official-card">
-          <div class="official-card-title">
-            <span>OpenAI Status</span>
-            <strong>{{ settings_status.openai_secret_status }}</strong>
-          </div>
-          <dl>
-            <div><dt>Classifier</dt><dd>{{ settings_status.item_classifier_model }}</dd></div>
-            <div><dt>Report model</dt><dd>{{ settings_status.report_model }}</dd></div>
-            <div><dt>Embeddings</dt><dd>{{ settings_status.embedding_model }}</dd></div>
-          </dl>
+      <section class="briefing-kpis" aria-label="Portrayal summary">
+        <article class="briefing-kpi positive">
+          <span>Positive / நேர்மறை</span>
+          <strong>{{ summary.positive_count }}</strong>
+          <small>supportive or beneficial portrayal</small>
         </article>
-        <article class="official-card">
-          <div class="official-card-title">
-            <span>Official Demo Controls</span>
-            <strong>{{ settings_status.operator_guard }}</strong>
-          </div>
-          <dl>
-            <div><dt>Evidence policy</dt><dd>Public sources only</dd></div>
-            <div><dt>AI claims</dt><dd>Human review gated</dd></div>
-            <div><dt>Secrets</dt><dd>Hidden runtime config</dd></div>
-          </dl>
+        <article class="briefing-kpi negative">
+          <span>Negative / எதிர்மறை</span>
+          <strong>{{ summary.negative_count }}</strong>
+          <small>critical coverage or allegations</small>
+        </article>
+        <article class="briefing-kpi mixed">
+          <span>Mixed / கலப்பு</span>
+          <strong>{{ summary.mixed_count }}</strong>
+          <small>both concern and appreciation</small>
+        </article>
+        <article class="briefing-kpi people">
+          <span>People Issues / மக்கள் பிரச்சினைகள்</span>
+          <strong>{{ summary.people_issue_count }}</strong>
+          <small>items needing attention</small>
         </article>
       </section>
 
-      <div class="workspace-grid">
-        <section class="split panel-row" aria-label="Classification summaries">
+      <section id="narratives" class="briefing-section">
+        <div class="section-heading">
           <div>
-            <h2>Stance</h2>
-            <dl>
-              {% for label, count in summary.stance_counts.items() %}
-                <div><dt>{{ label }}</dt><dd>{{ count }}</dd></div>
-              {% endfor %}
-            </dl>
+            <p class="section-kicker">Narrative Cards</p>
+            <h2>Positive and Negative Portrayal With Evidence</h2>
           </div>
-          <div>
-            <h2>Severity</h2>
-            <dl>
-              {% for label, count in summary.severity_counts.items() %}
-                <div><dt>{{ label }}</dt><dd>{{ count }}</dd></div>
-              {% endfor %}
-            </dl>
-          </div>
-        </section>
+          <span id="visible-evidence-count">{{ latest_items|length }} evidence records visible</span>
+        </div>
 
-        <aside class="insight-rail" aria-label="Pipeline status">
-          <h2>Pipeline State</h2>
-          <div class="rail-step">
-            <span>RSS Import</span>
-            <strong>{{ summary.total_items }}</strong>
-          </div>
-          <div class="rail-step">
-            <span>AI Analysis</span>
-            <strong>{{ summary.total_analyses }}</strong>
-          </div>
-          <div class="rail-step">
-            <span>RAG Ready</span>
-            <strong>{{ summary.total_embeddings }}</strong>
-          </div>
-          <div class="rail-step">
-            <span>OpenAI Records</span>
-            <strong>{{ summary.openai_analyses }}</strong>
-          </div>
-        </aside>
-      </div>
-
-      <section class="panel audit-panel">
-        <div class="panel-heading">
-          <h2>Official Demo Log</h2>
-          <span>Traceable source, AI and report readiness</span>
-        </div>
-        <div class="audit-log">
-          {% for event in audit_events %}
-            <article class="audit-event">
-              <div>
-                <span>{{ event.stage }}</span>
-                <strong>{{ event.status }}</strong>
-              </div>
-              <p>{{ event.detail }}</p>
-            </article>
-          {% endfor %}
-        </div>
-      </section>
-
-      <section class="panel source-panel">
-        <div class="panel-heading">
-          <h2>Source Coverage</h2>
-          <span>Newspaper evidence imported into the official demo workspace</span>
-        </div>
-        <div class="source-grid">
-          {% for source in summary.top_sources %}
-            <div class="source-row">
-              <span>{{ source.label }}</span>
-              <strong>{{ source.count }}</strong>
-            </div>
-          {% else %}
-            <p class="empty">No source coverage yet.</p>
-          {% endfor %}
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-heading">
-          <h2>Pending Review</h2>
-          <span>Sensitive or low-confidence items</span>
-        </div>
-        <div class="queue">
-          {% for item in queue %}
-            <article class="queue-item">
-              <div class="queue-meta">
-                <span>{{ item.source_name }}</span>
-                <span>{{ item.department }}</span>
-                <span>{{ item.district }}</span>
-                <span>{{ item.severity }}</span>
-              </div>
-              <h3>{{ item.title or "Untitled item" }}</h3>
-              <p>{{ item.summary }}</p>
-              <a href="{{ item.source_url }}" rel="noreferrer" target="_blank">Open source</a>
-            </article>
-          {% else %}
-            <p class="empty">No pending review items.</p>
-          {% endfor %}
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-heading">
-          <h2>Latest Live Newspaper Items</h2>
-          <span id="visible-evidence-count">RSS article evidence converted into AI-ready records</span>
-        </div>
-        <div class="evidence-toolbar" aria-label="Evidence filters">
+        <div class="evidence-toolbar official-toolbar" aria-label="Evidence filters">
           <label>
-            <span>Search evidence</span>
-            <input id="evidence-search" type="search" placeholder="Search title, source, stance or summary">
+            <span>Search</span>
+            <input id="evidence-search" type="search" placeholder="Search topic, source, stance or summary">
           </label>
           <label>
-            <span>Stance</span>
+            <span>Portrayal</span>
             <select id="stance-filter">
-              <option value="">All stance</option>
+              <option value="">All</option>
               <option value="positive">Positive</option>
               <option value="negative">Negative</option>
               <option value="mixed">Mixed</option>
@@ -209,41 +98,109 @@
             </select>
           </label>
           <label>
-            <span>Source</span>
+            <span>Newspaper</span>
             <select id="source-filter">
-              <option value="">All sources</option>
+              <option value="">All newspapers</option>
             </select>
           </label>
         </div>
-        <div class="queue">
+
+        <div class="narrative-grid">
           {% for item in latest_items %}
             <article
-              class="queue-item evidence-record"
+              class="narrative-card {{ item.portrayal_kind }}"
               data-role="latest-record"
               data-stance="{{ item.stance }}"
               data-source="{{ item.source_name }}"
             >
-              <div class="queue-meta">
-                <span>{{ item.source_name }}</span>
-                <span class="stance-chip stance-{{ item.stance }}">{{ item.stance }}</span>
-                <span>{{ item.department }}</span>
-                <span>{{ item.district }}</span>
-                <span>AI {{ item.model_name }}</span>
-                {% if item.needs_human_review %}
-                  <span>review</span>
-                {% endif %}
+              <div class="topic-illustration {{ item.portrayal_kind }}" aria-hidden="true">
+                <span>{{ loop.index }}</span>
               </div>
-              <div class="evidence-layout">
-                <div class="record-index">{{ loop.index }}</div>
-                <div class="record-body">
-                  <h3>{{ item.title or "Untitled item" }}</h3>
-                  <p>{{ item.summary }}</p>
-                  <a href="{{ item.source_url }}" rel="noreferrer" target="_blank">Open source</a>
+              <div class="narrative-content">
+                <div class="narrative-meta">
+                  <span>{{ item.source_name }}</span>
+                  <strong>{{ item.stance_label }}</strong>
+                </div>
+                <h3>{{ item.title or "Untitled item" }}</h3>
+                <div class="bilingual-summary">
+                  <p><span>English</span>{{ item.summary_english or item.summary }}</p>
+                  <p><span>தமிழ்</span>{{ item.summary_original or item.summary }}</p>
+                </div>
+                <div class="evidence-box">
+                  <span>Evidence / ஆதாரம்</span>
+                  {% for quote in item.evidence_original %}
+                    <p>{{ quote }}</p>
+                  {% endfor %}
+                </div>
+                <div class="narrative-footer">
+                  <span>{{ item.department }} · {{ item.district }}</span>
+                  <a href="{{ item.source_url }}" rel="noreferrer" target="_blank">Open evidence</a>
                 </div>
               </div>
             </article>
           {% else %}
-            <p class="empty">No newspaper items ingested yet.</p>
+            <p class="empty">No newspaper evidence imported yet.</p>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section id="people" class="briefing-section two-column-briefing">
+        <div class="briefing-panel">
+          <div class="section-heading compact">
+            <div>
+              <p class="section-kicker">People Issues</p>
+              <h2>Concerns to Watch</h2>
+            </div>
+          </div>
+          <div class="brief-list">
+            {% for item in concern_items %}
+              <article>
+                <strong>{{ item.title or "Untitled item" }}</strong>
+                <span>{{ item.stance_label }} · {{ item.source_name }}</span>
+                <p>{{ item.summary_english or item.summary }}</p>
+              </article>
+            {% else %}
+              <p class="empty">No negative or mixed people-issue items in this pilot set.</p>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="briefing-panel">
+          <div class="section-heading compact">
+            <div>
+              <p class="section-kicker">Positive Coverage</p>
+              <h2>Supportive Signals</h2>
+            </div>
+          </div>
+          <div class="brief-list">
+            {% for item in positive_items %}
+              <article>
+                <strong>{{ item.title or "Untitled item" }}</strong>
+                <span>{{ item.source_name }}</span>
+                <p>{{ item.summary_english or item.summary }}</p>
+              </article>
+            {% else %}
+              <p class="empty">No positive items in this pilot set.</p>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <section id="evidence" class="briefing-section">
+        <div class="section-heading compact">
+          <div>
+            <p class="section-kicker">Newspaper Coverage</p>
+            <h2>Pilot Source Mix</h2>
+          </div>
+        </div>
+        <div class="source-grid official-source-grid">
+          {% for source in summary.top_sources %}
+            <div class="source-row">
+              <span>{{ source.label }}</span>
+              <strong>{{ source.count }}</strong>
+            </div>
+          {% else %}
+            <p class="empty">No source coverage yet.</p>
           {% endfor %}
         </div>
       </section>

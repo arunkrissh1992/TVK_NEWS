@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from tnmi.ai import AIAnalyzer, PROMPT_VERSION
 from tnmi.contracts import NewspaperSource, NormalizedItem, SourceType
 from tnmi.language import detect_language
-from tnmi.news import extract_article_text, parse_feed_entries
+from tnmi.news import FeedEntry, extract_article_text, parse_feed_entries, parse_listing_entries
 from tnmi.storage import get_ai_analysis, save_ai_analysis, save_raw_item
 
 
@@ -211,7 +211,7 @@ class DailyNewsPipeline:
                 for rss_url in source.rss_urls:
                     try:
                         feed_xml = self.news_client.fetch_text(str(rss_url))
-                        entries = parse_feed_entries(source, feed_xml)
+                        entries = _parse_source_entries(source, feed_xml, source_url=str(rss_url))
                     except Exception:
                         failures += 1
                         continue
@@ -274,3 +274,10 @@ class DailyNewsPipeline:
             failures=failures,
             sources_skipped=sources_skipped,
         )
+
+
+def _parse_source_entries(source: NewspaperSource, content: str, *, source_url: str) -> list[FeedEntry]:
+    entries = parse_feed_entries(source, content)
+    if entries:
+        return entries
+    return parse_listing_entries(source, content, base_url=source_url)

@@ -198,16 +198,15 @@ def test_dashboard_html_renders_summary_and_review_queue(monkeypatch, tmp_path):
     response = client.get("/dashboard")
 
     assert response.status_code == 200
-    assert "Tamil Nadu Public Media Intelligence" in response.text
-    assert "Daily Intelligence" in response.text
-    assert "Investigation Desk" in response.text
-    assert "Search evidence" in response.text
-    assert "Official Demo Log" in response.text
-    assert "OpenAI Live" in response.text
+    assert "TVK Public Media Briefing" in response.text
+    assert "Confidential Daily Briefing" in response.text
+    assert "What is being said" in response.text
+    assert "Positive and Negative Portrayal With Evidence" in response.text
+    assert "People Issues" in response.text
     assert "Needs review." in response.text
-    assert "Pending Review" in response.text
-    assert "RAG Chunks" in response.text
-    assert "Latest Live Newspaper Items" in response.text
+    assert "Evidence / ஆதாரம்" in response.text
+    assert "OpenAI Live" not in response.text
+    assert "RAG Chunks" not in response.text
 
 
 def test_operator_token_blocks_confidential_dashboard_endpoint(monkeypatch, tmp_path):

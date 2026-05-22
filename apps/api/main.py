@@ -117,6 +117,20 @@ def _dashboard_audit_events(
     ]
 
 
+def _briefing_groups(latest_items: list[dict[str, object]]) -> dict[str, list[dict[str, object]]]:
+    positive = [item for item in latest_items if item.get("stance") == "positive"]
+    concerns = [
+        item
+        for item in latest_items
+        if item.get("stance") in {"negative", "mixed"} or item.get("needs_human_review")
+    ]
+    return {
+        "positive_items": positive[:4],
+        "concern_items": concerns[:4],
+        "narrative_items": latest_items[:8],
+    }
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -212,6 +226,7 @@ def dashboard_page(request: Request) -> HTMLResponse:
             "summary": summary,
             "queue": queue,
             "latest_items": latest_items,
+            **_briefing_groups(latest_items),
             "settings_status": settings_status,
             "audit_events": _dashboard_audit_events(
                 summary=summary,

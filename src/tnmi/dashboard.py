@@ -21,6 +21,32 @@ def _count_values(values: list[str | None]) -> dict[str, int]:
     return dict(Counter(value for value in values if value))
 
 
+def _stance_label(stance: str | None) -> str:
+    return {
+        "positive": "Positive / நேர்மறை",
+        "negative": "Negative / எதிர்மறை",
+        "mixed": "Mixed / கலப்பு",
+        "neutral": "Neutral / நடுநிலை",
+    }.get(stance or "", "Review / மதிப்பாய்வு")
+
+
+def _portrayal_kind(stance: str | None) -> str:
+    if stance == "positive":
+        return "positive"
+    if stance == "negative":
+        return "negative"
+    if stance == "mixed":
+        return "mixed"
+    return "neutral"
+
+
+def _display_list(values: list[str] | None, *, fallback: str = "") -> list[str]:
+    cleaned = [value.strip() for value in values or [] if value and value.strip()]
+    if cleaned:
+        return cleaned[:3]
+    return [fallback] if fallback else []
+
+
 def _top_counts(counts: dict[str, int], *, limit: int = 8) -> list[dict[str, int | str]]:
     return [
         {"label": label, "count": count}
@@ -56,6 +82,7 @@ def get_dashboard_summary(session: Session) -> dict[str, Any]:
     return {
         "total_items": len(items),
         "total_analyses": len(analyses),
+        "source_count": len(source_counts),
         "total_chunks": session.scalar(select(func.count()).select_from(DocumentChunkRecord)) or 0,
         "total_embeddings": len(embeddings),
         "openai_analyses": sum(1 for row in analyses if row.model_name != "mock"),
@@ -63,6 +90,15 @@ def get_dashboard_summary(session: Session) -> dict[str, Any]:
         "needs_human_review": sum(1 for row in analyses if row.needs_human_review),
         "reviewed": len(reviewed_analysis_ids),
         "pending_review": sum(1 for row in analyses if row.needs_human_review and row.id not in reviewed_analysis_ids),
+        "positive_count": sum(1 for row in analyses if row.stance_toward_government == "positive"),
+        "negative_count": sum(1 for row in analyses if row.stance_toward_government == "negative"),
+        "mixed_count": sum(1 for row in analyses if row.stance_toward_government == "mixed"),
+        "neutral_count": sum(1 for row in analyses if row.stance_toward_government == "neutral"),
+        "people_issue_count": sum(
+            1
+            for row in analyses
+            if row.stance_toward_government in {"negative", "mixed"} or row.needs_human_review
+        ),
         "stance_counts": _count_values([row.stance_toward_government for row in analyses]),
         "severity_counts": _count_values([row.severity for row in analyses]),
         "department_counts": _count_values([row.department for row in analyses]),
@@ -154,14 +190,30 @@ def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, An
             "title": item.title,
             "published_at": item.published_at,
             "language": item.language,
-            "stance": analysis.stance_toward_government,
-            "severity": analysis.severity,
-            "department": analysis.department,
-            "district": analysis.district,
-            "summary": analysis.summary_english or analysis.summary_original,
-            "confidence": analysis.confidence,
-            "needs_human_review": analysis.needs_human_review,
-            "model_name": analysis.model_name,
+                "stance": analysis.stance_toward_government,
+                "stance_label": _stance_label(analysis.stance_toward_government),
+                "portrayal_kind": _portrayal_kind(analysis.stance_toward_government),
+                "severity": analysis.severity,
+                "target": analysis.target,
+                "department": analysis.department,
+                "district": analysis.district,
+                "summary_original": analysis.summary_original,
+                "summary_english": analysis.summary_english,
+                "summary": analysis.summary_english or analysis.summary_original,
+                "positive_points": _display_list(analysis.positive_points),
+                "negative_points": _display_list(analysis.negative_points),
+                "evidence_original": _display_list(
+                    analysis.evidence_quotes_original,
+                    fallback=analysis.summary_original,
+                ),
+                "evidence_english": _display_list(
+                    analysis.evidence_quotes_english,
+                    fallback=analysis.summary_english,
+                ),
+                "issue_category": analysis.issue_category,
+                "confidence": analysis.confidence,
+                "needs_human_review": analysis.needs_human_review,
+                "model_name": analysis.model_name,
             "prompt_version": analysis.prompt_version,
         }
         if len(latest_by_raw_item) >= bounded_limit:

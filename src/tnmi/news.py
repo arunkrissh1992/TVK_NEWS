@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from time import struct_time
+from urllib.parse import urljoin, urlsplit
 
 import feedparser
 import trafilatura
@@ -54,6 +55,35 @@ class _TextFallbackParser(HTMLParser):
 
     def get_text(self) -> str:
         return " ".join(self._chunks)
+
+
+class _ListingLinkParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self._active_href: str | None = None
+        self._text_chunks: list[str] = []
+        self.links: list[tuple[str, str]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != "a":
+            return
+        attr_map = dict(attrs)
+        href = attr_map.get("href")
+        if href:
+            self._active_href = href
+            self._text_chunks = []
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag != "a" or not self._active_href:
+            return
+        title = " ".join(chunk.strip() for chunk in self._text_chunks if chunk.strip()).strip()
+        self.links.append((self._active_href, title))
+        self._active_href = None
+        self._text_chunks = []
+
+    def handle_data(self, data: str) -> None:
+        if self._active_href:
+            self._text_chunks.append(data)
 
 
 def _is_url_like(value: str | None) -> bool:
@@ -133,6 +163,54 @@ def parse_feed_entries(source: NewspaperSource, feed_xml: str) -> list[FeedEntry
             )
         )
     return entries
+
+
+def parse_listing_entries(
+    source: NewspaperSource,
+    html: str,
+    *,
+    base_url: str,
+    limit: int = 20,
+) -> list[FeedEntry]:
+    parser = _ListingLinkParser()
+    parser.feed(html)
+    base_hostname = urlsplit(base_url).hostname
+    seen_urls: set[str] = set()
+    entries: list[FeedEntry] = []
+    for href, title in parser.links:
+        url = urljoin(base_url, href)
+        if not _is_listing_article_candidate(url, title, base_hostname):
+            continue
+        normalized_title = " ".join(title.split())
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        entries.append(
+            FeedEntry(
+                source_name=source.name,
+                url=url,
+                title=normalized_title,
+                published_at=None,
+            )
+        )
+        if len(entries) >= limit:
+            break
+    return entries
+
+
+def _is_listing_article_candidate(url: str, title: str, base_hostname: str | None) -> bool:
+    if not _is_url_like(url) or len(title.strip()) < 10:
+        return False
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    if base_hostname and parsed.hostname != base_hostname:
+        return False
+    path = parsed.path.strip("/")
+    if not path:
+        return False
+    blocked_paths = {"rss", "epaper", "privacy-policy", "terms"}
+    return path not in blocked_paths
 
 
 def extract_article_text(url: str, html: str) -> ExtractedArticle:

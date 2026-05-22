@@ -135,6 +135,9 @@ def test_latest_items_returns_recent_analyzed_newspaper_items(tmp_path):
     assert latest[0]["title"] == "Real newspaper item"
     assert latest[0]["summary"] == "Visible business demo summary."
     assert latest[0]["model_name"] == "mock"
+    assert latest[0]["stance_label"] == "Positive / நேர்மறை"
+    assert latest[0]["portrayal_kind"] == "positive"
+    assert latest[0]["evidence_original"]
 
 
 def test_latest_items_prefers_live_ai_analysis_over_mock_for_same_raw_item(tmp_path):

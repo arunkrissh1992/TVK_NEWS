@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from tnmi.contracts import NewspaperSource
-from tnmi.news import extract_article_text, parse_feed_entries
+from tnmi.news import extract_article_text, parse_feed_entries, parse_listing_entries
 
 
 def test_parse_feed_entries_reads_rss_fixture():
@@ -13,6 +13,31 @@ def test_parse_feed_entries_reads_rss_fixture():
     assert len(entries) == 1
     assert entries[0].url == "https://example.com/news/tamil-nadu-scheme"
     assert "தமிழக அரசு" in entries[0].title
+
+
+def test_parse_listing_entries_reads_public_newspaper_listing_links():
+    html = """
+<!doctype html>
+<html>
+  <body>
+    <a href="/">Home</a>
+    <a href="/rss">RSS</a>
+    <a href="/tamilnadu/2026/May/22/people-issue">People issue in Tamil Nadu</a>
+    <a href="https://other.example/news/story">External story ignored</a>
+    <a href="/india/2026/May/22/policy-update">Policy update for officials</a>
+  </body>
+</html>
+"""
+    source = NewspaperSource(name="Example Tamil Daily", rss_urls=["https://example.com/rss"])
+
+    entries = parse_listing_entries(source, html, base_url="https://example.com/rss")
+
+    assert [entry.title for entry in entries] == [
+        "People issue in Tamil Nadu",
+        "Policy update for officials",
+    ]
+    assert entries[0].source_name == "Example Tamil Daily"
+    assert entries[0].url == "https://example.com/tamilnadu/2026/May/22/people-issue"
 
 
 def test_extract_article_text_from_html_fixture():
