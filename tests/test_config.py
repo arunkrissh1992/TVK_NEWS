@@ -1,6 +1,9 @@
 from pathlib import Path
 
-from tnmi.config import Settings, load_newspaper_sources
+import pytest
+from pydantic import ValidationError
+
+from tnmi.config import Settings, load_newspaper_sources, load_x_handle_sources
 
 
 def test_load_newspaper_sources_from_yaml(tmp_path: Path):
@@ -46,3 +49,41 @@ def test_milestone_one_has_no_active_newspaper_without_rss_urls():
     sources = load_newspaper_sources("configs/sources.newspapers.yaml")
 
     assert [source.name for source in sources if source.active and not source.rss_urls] == []
+
+
+def test_load_x_handle_sources_from_yaml(tmp_path: Path):
+    config = tmp_path / "x.yaml"
+    config.write_text(
+        """
+x_handles:
+  - handle: ExampleTNNews
+    display_name: Example Tamil News
+    language_hint: ta-en-mixed
+    priority: 2
+    active: true
+    legal_notes: Official API access only.
+""",
+        encoding="utf-8",
+    )
+
+    sources = load_x_handle_sources(config)
+
+    assert len(sources) == 1
+    assert sources[0].handle == "ExampleTNNews"
+    assert sources[0].source_name == "@ExampleTNNews"
+    assert sources[0].source_type == "x"
+
+
+def test_load_x_handle_sources_rejects_invalid_handles(tmp_path: Path):
+    config = tmp_path / "x.yaml"
+    config.write_text(
+        """
+x_handles:
+  - handle: "bad handle!"
+    active: true
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValidationError):
+        load_x_handle_sources(config)

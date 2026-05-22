@@ -5,7 +5,7 @@ from pathlib import Path
 import yaml
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from tnmi.contracts import NewspaperSource
+from tnmi.contracts import NewspaperSource, XHandleSource
 
 
 class Settings(BaseSettings):
@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     openai_model_item_classifier: str = "gpt-5.4-mini"
     openai_model_report: str = "gpt-5.5"
     news_source_config: Path = Path("configs/sources.newspapers.yaml")
+    x_source_config: Path = Path("configs/sources.x_handles.yaml")
+    x_bearer_token: str | None = None
     report_output_dir: Path = Path("reports/generated")
     operator_api_token: str | None = None
 
@@ -27,3 +29,8 @@ class Settings(BaseSettings):
 def load_newspaper_sources(path: str | Path) -> list[NewspaperSource]:
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     return [NewspaperSource.model_validate(item) for item in data.get("newspapers", [])]
+
+
+def load_x_handle_sources(path: str | Path) -> list[XHandleSource]:
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    return [XHandleSource.model_validate(item) for item in data.get("x_handles", [])]

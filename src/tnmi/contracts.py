@@ -5,7 +5,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 
 class SourceType(StrEnum):
@@ -65,6 +65,27 @@ class NewspaperSource(BaseModel):
     legal_notes: str = "Public newspaper source; respect robots, rate limits, and terms."
 
 
+class XHandleSource(BaseModel):
+    handle: str = Field(min_length=1, max_length=15, pattern=r"^[A-Za-z0-9_]{1,15}$")
+    display_name: str | None = None
+    source_type: SourceType = SourceType.X
+    language_hint: str = "ta-en-mixed"
+    priority: int = Field(default=5, ge=1, le=10)
+    active: bool = True
+    legal_notes: str = "Public X source; use official X API access only."
+
+    @field_validator("handle", mode="before")
+    @classmethod
+    def strip_at_prefix(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.removeprefix("@")
+        return value
+
+    @property
+    def source_name(self) -> str:
+        return f"@{self.handle}"
+
+
 class NormalizedItem(BaseModel):
     source_type: SourceType
     source_name: str
@@ -110,6 +131,17 @@ class AIAnalysis(BaseModel):
     evidence_quotes_english: list[str] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0)
     needs_human_review: bool
+
+
+class XPost(BaseModel):
+    id: str = Field(min_length=1)
+    handle: str = Field(min_length=1, max_length=15)
+    text: str
+    created_at: datetime | None = None
+    lang: str | None = None
+    public_metrics: dict[str, int] = Field(default_factory=dict)
+    url: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ReviewDecisionCreate(BaseModel):

@@ -1,0 +1,13 @@
+x_handles:
+  - handle: ThanthiTV
+    display_name: Thanthi TV
+    language_hint: ta-en-mixed
+    priority: 2
+    active: false
+    legal_notes: Enable only after approved official X API access and quota review.
+  - handle: TheHinduTamil
+    display_name: The Hindu Tamil
+    language_hint: ta-en-mixed
+    priority: 3
+    active: false
+    legal_notes: Enable only after approved official X API access and quota review.
