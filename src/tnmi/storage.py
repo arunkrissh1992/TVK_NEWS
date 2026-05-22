@@ -65,6 +65,9 @@ class RawItemRecord(Base):
 
 class AIAnalysisRecord(Base):
     __tablename__ = "ai_analysis"
+    __table_args__ = (
+        UniqueConstraint("raw_item_id", "model_name", "prompt_version", name="uq_ai_analysis_raw_model_prompt"),
+    )
 
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
     raw_item_id: Mapped[int] = mapped_column(ID_TYPE, ForeignKey("raw_items.id", ondelete="CASCADE"), index=True)
@@ -149,6 +152,16 @@ def save_ai_analysis(
     model_name: str,
     prompt_version: str,
 ) -> AIAnalysisRecord:
+    existing = session.scalar(
+        select(AIAnalysisRecord).where(
+            AIAnalysisRecord.raw_item_id == raw_item_id,
+            AIAnalysisRecord.model_name == model_name,
+            AIAnalysisRecord.prompt_version == prompt_version,
+        )
+    )
+    if existing:
+        return existing
+
     record = AIAnalysisRecord(
         raw_item_id=raw_item_id,
         model_name=model_name,
@@ -172,6 +185,20 @@ def save_ai_analysis(
         confidence=analysis.confidence,
         needs_human_review=analysis.needs_human_review,
     )
-    session.add(record)
-    session.flush()
+    try:
+        with session.begin_nested():
+            session.add(record)
+            session.flush()
+    except IntegrityError:
+        existing = session.scalar(
+            select(AIAnalysisRecord).where(
+                AIAnalysisRecord.raw_item_id == raw_item_id,
+                AIAnalysisRecord.model_name == model_name,
+                AIAnalysisRecord.prompt_version == prompt_version,
+            )
+        )
+        if existing:
+            return existing
+        raise
+
     return record

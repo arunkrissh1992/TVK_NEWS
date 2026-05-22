@@ -42,7 +42,8 @@ CREATE TABLE ai_analysis (
     evidence_quotes_english JSONB NOT NULL DEFAULT '[]'::jsonb,
     confidence DOUBLE PRECISION NOT NULL,
     needs_human_review BOOLEAN NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_ai_analysis_raw_model_prompt UNIQUE (raw_item_id, model_name, prompt_version)
 );
 
 CREATE INDEX ix_ai_analysis_raw_item_id ON ai_analysis (raw_item_id);

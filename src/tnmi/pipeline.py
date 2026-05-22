@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Protocol
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 from sqlalchemy.orm import Session, sessionmaker
@@ -11,6 +12,27 @@ from tnmi.contracts import NewspaperSource, NormalizedItem, SourceType
 from tnmi.language import detect_language
 from tnmi.news import extract_article_text, parse_feed_entries
 from tnmi.storage import save_ai_analysis, save_raw_item
+
+
+_TRACKING_QUERY_PARAMS = {"fbclid", "gclid"}
+
+
+def normalize_source_url(url: str) -> str:
+    parsed = urlsplit(url)
+    query = [
+        (key, value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if not key.lower().startswith("utm_") and key.lower() not in _TRACKING_QUERY_PARAMS
+    ]
+    return urlunsplit(
+        (
+            parsed.scheme.lower(),
+            parsed.netloc.lower(),
+            parsed.path,
+            urlencode(query, doseq=True),
+            "",
+        )
+    )
 
 
 class NewsClient(Protocol):
@@ -82,36 +104,37 @@ class DailyNewsPipeline:
                         items_seen += 1
                         try:
                             html = self.news_client.fetch_text(entry.url)
-                            article = extract_article_text(entry.url, html)
-                            text = article.clean_text.strip()
-                            if not text:
-                                failures += 1
-                                continue
-                            item = NormalizedItem(
-                                source_type=SourceType.NEWS,
-                                source_name=source.name,
-                                source_url=entry.url,
-                                published_at=entry.published_at,
-                                language=detect_language(text),
-                                title=article.title or entry.title,
-                                raw_text_original=article.raw_text,
-                                clean_text_original=text,
-                                metadata={
-                                    **article.metadata,
-                                    "extraction_succeeded": article.extraction_succeeded,
-                                },
-                            )
-                            raw = save_raw_item(session, item)
-                            items_saved += 1
-                            analysis = self.analyzer.analyze(item)
-                            save_ai_analysis(
-                                session,
-                                raw.id,
-                                analysis,
-                                model_name=self.analyzer.model_name,
-                                prompt_version=PROMPT_VERSION,
-                            )
-                            analyses_saved += 1
+                            normalized_url = normalize_source_url(entry.url)
+                            article = extract_article_text(normalized_url, html)
+                            with session.begin_nested():
+                                text = article.clean_text.strip()
+                                if not text:
+                                    raise ValueError("article extraction produced no text")
+                                item = NormalizedItem(
+                                    source_type=SourceType.NEWS,
+                                    source_name=source.name,
+                                    source_url=normalized_url,
+                                    published_at=entry.published_at,
+                                    language=detect_language(text),
+                                    title=article.title or entry.title,
+                                    raw_text_original=article.raw_text,
+                                    clean_text_original=text,
+                                    metadata={
+                                        **article.metadata,
+                                        "extraction_succeeded": article.extraction_succeeded,
+                                    },
+                                )
+                                raw = save_raw_item(session, item)
+                                analysis = self.analyzer.analyze(item)
+                                save_ai_analysis(
+                                    session,
+                                    raw.id,
+                                    analysis,
+                                    model_name=self.analyzer.model_name,
+                                    prompt_version=PROMPT_VERSION,
+                                )
+                                items_saved += 1
+                                analyses_saved += 1
                         except Exception:
                             failures += 1
 

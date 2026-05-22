@@ -1,9 +1,11 @@
 from pathlib import Path
 
+from sqlalchemy import func, select
+
 from tnmi.ai import MockAIAnalyzer
 from tnmi.contracts import NewspaperSource
-from tnmi.pipeline import DailyNewsPipeline, InMemoryNewsClient
-from tnmi.storage import create_session_factory, init_db
+from tnmi.pipeline import DailyNewsPipeline, InMemoryNewsClient, normalize_source_url
+from tnmi.storage import AIAnalysisRecord, RawItemRecord, create_session_factory, init_db
 
 
 def test_daily_news_pipeline_processes_feed_and_article(tmp_path):
@@ -26,3 +28,105 @@ def test_daily_news_pipeline_processes_feed_and_article(tmp_path):
     assert result.items_seen == 1
     assert result.items_saved == 1
     assert result.analyses_saved == 1
+
+
+def test_daily_news_pipeline_rerun_does_not_duplicate_rows(tmp_path):
+    feed_xml = Path("tests/fixtures/sample_feed.xml").read_text(encoding="utf-8")
+    article_html = Path("tests/fixtures/sample_article.html").read_text(encoding="utf-8")
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'test.db'}")
+    init_db(session_factory)
+    client = InMemoryNewsClient(
+        feeds={"https://example.com/rss": feed_xml},
+        articles={"https://example.com/news/tamil-nadu-scheme": article_html},
+    )
+    pipeline = DailyNewsPipeline(
+        session_factory=session_factory,
+        news_client=client,
+        analyzer=MockAIAnalyzer(),
+    )
+    sources = [NewspaperSource(name="Example Tamil Daily", rss_urls=["https://example.com/rss"])]
+
+    first = pipeline.run(sources)
+    second = pipeline.run(sources)
+
+    with session_factory() as session:
+        raw_count = session.scalar(select(func.count()).select_from(RawItemRecord))
+        analysis_count = session.scalar(select(func.count()).select_from(AIAnalysisRecord))
+
+    assert first.items_seen == 1
+    assert first.items_saved == 1
+    assert first.analyses_saved == 1
+    assert second.items_seen == 1
+    assert second.items_saved == 1
+    assert second.analyses_saved == 1
+    assert raw_count == 1
+    assert analysis_count == 1
+
+
+def test_daily_news_pipeline_rolls_back_raw_item_when_analysis_fails(tmp_path):
+    class RaisingAnalyzer:
+        model_name = "raising"
+
+        def analyze(self, item):
+            raise RuntimeError("analysis failed")
+
+    feed_xml = Path("tests/fixtures/sample_feed.xml").read_text(encoding="utf-8")
+    article_html = Path("tests/fixtures/sample_article.html").read_text(encoding="utf-8")
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'test.db'}")
+    init_db(session_factory)
+    client = InMemoryNewsClient(
+        feeds={"https://example.com/rss": feed_xml},
+        articles={"https://example.com/news/tamil-nadu-scheme": article_html},
+    )
+    pipeline = DailyNewsPipeline(
+        session_factory=session_factory,
+        news_client=client,
+        analyzer=RaisingAnalyzer(),
+    )
+
+    result = pipeline.run([NewspaperSource(name="Example Tamil Daily", rss_urls=["https://example.com/rss"])])
+
+    with session_factory() as session:
+        raw_count = session.scalar(select(func.count()).select_from(RawItemRecord))
+        analysis_count = session.scalar(select(func.count()).select_from(AIAnalysisRecord))
+
+    assert result.items_seen == 1
+    assert result.items_saved == 0
+    assert result.analyses_saved == 0
+    assert result.failures == 1
+    assert raw_count == 0
+    assert analysis_count == 0
+
+
+def test_daily_news_pipeline_stores_normalized_source_url(tmp_path):
+    article_url = "https://Example.com/news/tamil-nadu-scheme?utm_source=rss&district=chennai&fbclid=abc#comments"
+    feed_xml = f"""
+    <rss version="2.0">
+      <channel>
+        <item>
+          <title>Tamil Nadu scheme</title>
+          <link>{article_url}</link>
+        </item>
+      </channel>
+    </rss>
+    """
+    article_html = Path("tests/fixtures/sample_article.html").read_text(encoding="utf-8")
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'test.db'}")
+    init_db(session_factory)
+    client = InMemoryNewsClient(
+        feeds={"https://example.com/rss": feed_xml},
+        articles={article_url: article_html},
+    )
+    pipeline = DailyNewsPipeline(
+        session_factory=session_factory,
+        news_client=client,
+        analyzer=MockAIAnalyzer(),
+    )
+
+    pipeline.run([NewspaperSource(name="Example Tamil Daily", rss_urls=["https://example.com/rss"])])
+
+    with session_factory() as session:
+        raw = session.scalar(select(RawItemRecord))
+
+    assert raw.source_url == "https://example.com/news/tamil-nadu-scheme?district=chennai"
+    assert normalize_source_url(article_url) == raw.source_url

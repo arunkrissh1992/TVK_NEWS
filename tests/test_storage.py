@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 import pytest
+from sqlalchemy import func, select
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.schema import CreateTable
@@ -96,6 +97,23 @@ def test_save_ai_analysis_for_raw_item(tmp_path):
     assert saved.raw_item_id == raw.id
 
 
+def test_save_ai_analysis_is_idempotent_for_raw_model_and_prompt(tmp_path):
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'test.db'}")
+    init_db(session_factory)
+    item = make_item()
+    analysis = make_analysis()
+
+    with session_factory() as session:
+        raw = save_raw_item(session, item)
+        first = save_ai_analysis(session, raw.id, analysis, model_name="mock", prompt_version="v1")
+        second = save_ai_analysis(session, raw.id, analysis, model_name="mock", prompt_version="v1")
+        row_count = session.scalar(select(func.count()).select_from(AIAnalysisRecord))
+        session.commit()
+
+    assert first.id == second.id
+    assert row_count == 1
+
+
 def test_save_ai_analysis_rejects_nonexistent_raw_item(tmp_path):
     session_factory = create_session_factory(f"sqlite:///{tmp_path / 'test.db'}")
     init_db(session_factory)
@@ -145,3 +163,4 @@ def test_postgresql_ddl_includes_json_server_defaults():
     assert "negative_points JSONB DEFAULT '[]'" in ai_analysis_ddl
     assert "evidence_quotes_original JSONB DEFAULT '[]'" in ai_analysis_ddl
     assert "evidence_quotes_english JSONB DEFAULT '[]'" in ai_analysis_ddl
+    assert "CONSTRAINT uq_ai_analysis_raw_model_prompt UNIQUE (raw_item_id, model_name, prompt_version)" in ai_analysis_ddl
