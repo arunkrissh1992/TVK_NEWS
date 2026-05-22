@@ -26,28 +26,36 @@ def parse_news_date(value: str) -> date:
         raise argparse.ArgumentTypeError(f"invalid ISO date: {value}") from exc
 
 
-def build_analyzer(settings: Settings):
+def build_analyzer(settings: Settings, *, mock_ai: bool):
+    if mock_ai:
+        return MockAIAnalyzer()
     if settings.openai_api_key:
         return OpenAIAnalyzer(
             api_key=settings.openai_api_key,
             model_name=settings.openai_model_item_classifier,
         )
-    return MockAIAnalyzer()
+    raise RuntimeError("OPENAI_API_KEY is required unless --mock-ai is provided")
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--date", type=parse_news_date, default=date.today())
+    parser.add_argument("--mock-ai", action="store_true")
     args = parser.parse_args(argv)
 
     settings = Settings()
     sources = load_newspaper_sources(settings.news_source_config)
+    try:
+        analyzer = build_analyzer(settings, mock_ai=args.mock_ai)
+    except RuntimeError as exc:
+        parser.error(str(exc))
+
     session_factory = create_session_factory(settings.database_url)
     init_db(session_factory)
     pipeline = DailyNewsPipeline(
         session_factory=session_factory,
         news_client=RequestsNewsClient(),
-        analyzer=build_analyzer(settings),
+        analyzer=analyzer,
     )
     result = pipeline.run(sources)
     with session_factory() as session:

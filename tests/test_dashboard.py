@@ -1,6 +1,6 @@
 from tests.test_storage import make_analysis, make_item
 from tnmi.contracts import GovernmentRelevance, ReviewDecisionCreate, ReviewStatus, Severity, Stance
-from tnmi.dashboard import get_dashboard_summary, list_review_queue
+from tnmi.dashboard import get_dashboard_summary, list_latest_items, list_review_queue
 from tnmi.storage import create_session_factory, init_db, save_ai_analysis, save_raw_item, save_review_decision
 
 
@@ -95,3 +95,26 @@ def test_review_queue_prioritizes_unreviewed_high_severity_items(tmp_path):
     assert queue[0]["review_status"] == "pending"
     assert queue[0]["severity"] == "critical"
     assert queue[0]["stance"] == "negative"
+
+
+def test_latest_items_returns_recent_analyzed_newspaper_items(tmp_path):
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'dashboard.db'}")
+    init_db(session_factory)
+
+    with session_factory() as session:
+        raw = save_raw_item(session, make_item().model_copy(update={"title": "Real newspaper item"}))
+        analysis = save_ai_analysis(
+            session,
+            raw.id,
+            make_analysis().model_copy(update={"summary_english": "Visible business demo summary."}),
+            model_name="mock",
+            prompt_version="v1",
+        )
+        latest = list_latest_items(session, limit=10)
+        session.commit()
+
+    assert latest[0]["raw_item_id"] == raw.id
+    assert latest[0]["analysis_id"] == analysis.id
+    assert latest[0]["title"] == "Real newspaper item"
+    assert latest[0]["summary"] == "Visible business demo summary."
+    assert latest[0]["model_name"] == "mock"

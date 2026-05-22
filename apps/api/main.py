@@ -11,7 +11,7 @@ from sqlalchemy import select
 from tnmi import __version__
 from tnmi.config import Settings, load_newspaper_sources, load_x_handle_sources
 from tnmi.contracts import ReviewDecisionCreate
-from tnmi.dashboard import get_dashboard_summary, list_review_queue
+from tnmi.dashboard import get_dashboard_summary, list_latest_items, list_review_queue
 from tnmi.storage import (
     AIAnalysisRecord,
     RawItemRecord,
@@ -135,7 +135,12 @@ def dashboard_page(request: Request) -> HTMLResponse:
     with session_factory() as session:
         summary = get_dashboard_summary(session)
         queue = list_review_queue(session, limit=50)
-    return templates.TemplateResponse(request, "dashboard.html", {"summary": summary, "queue": queue})
+        latest_items = list_latest_items(session, limit=20)
+    return templates.TemplateResponse(
+        request,
+        "dashboard.html",
+        {"summary": summary, "queue": queue, "latest_items": latest_items},
+    )
 
 
 @app.get("/dashboard/summary", dependencies=[Depends(require_operator)])

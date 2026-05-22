@@ -62,6 +62,31 @@
           {% endfor %}
         </div>
       </section>
+
+      <section>
+        <h2>Latest Live Newspaper Items</h2>
+        <div class="queue">
+          {% for item in latest_items %}
+            <article class="queue-item">
+              <div class="queue-meta">
+                <span>{{ item.source_name }}</span>
+                <span>{{ item.stance }}</span>
+                <span>{{ item.department }}</span>
+                <span>{{ item.district }}</span>
+                <span>AI {{ item.model_name }}</span>
+                {% if item.needs_human_review %}
+                  <span>review</span>
+                {% endif %}
+              </div>
+              <h3>{{ item.title or "Untitled item" }}</h3>
+              <p>{{ item.summary }}</p>
+              <a href="{{ item.source_url }}" rel="noreferrer" target="_blank">Open source</a>
+            </article>
+          {% else %}
+            <p class="empty">No newspaper items ingested yet.</p>
+          {% endfor %}
+        </div>
+      </section>
     </main>
   </body>
 </html>

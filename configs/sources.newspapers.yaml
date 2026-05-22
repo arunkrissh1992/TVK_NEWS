@@ -4,7 +4,7 @@ newspapers:
     priority: 1
     active: true
     rss_urls:
-      - https://www.hindutamil.in/rss
+      - https://www.hindutamil.in/feed
     sitemap_urls: []
     section_urls:
       - https://www.hindutamil.in/

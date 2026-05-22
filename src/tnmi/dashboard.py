@@ -78,3 +78,35 @@ def list_review_queue(session: Session, *, limit: int = 50) -> list[dict[str, An
             }
         )
     return queue
+
+
+def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, Any]]:
+    bounded_limit = max(1, min(limit, 100))
+    rows = session.execute(
+        select(RawItemRecord, AIAnalysisRecord)
+        .join(AIAnalysisRecord, AIAnalysisRecord.raw_item_id == RawItemRecord.id)
+        .where(RawItemRecord.source_type == "news")
+        .order_by(RawItemRecord.ingested_at.desc(), RawItemRecord.id.desc())
+        .limit(bounded_limit)
+    ).all()
+    return [
+        {
+            "raw_item_id": item.id,
+            "analysis_id": analysis.id,
+            "source_name": item.source_name,
+            "source_url": item.source_url,
+            "title": item.title,
+            "published_at": item.published_at,
+            "language": item.language,
+            "stance": analysis.stance_toward_government,
+            "severity": analysis.severity,
+            "department": analysis.department,
+            "district": analysis.district,
+            "summary": analysis.summary_english or analysis.summary_original,
+            "confidence": analysis.confidence,
+            "needs_human_review": analysis.needs_human_review,
+            "model_name": analysis.model_name,
+            "prompt_version": analysis.prompt_version,
+        }
+        for item, analysis in rows
+    ]

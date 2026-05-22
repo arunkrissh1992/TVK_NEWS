@@ -201,6 +201,7 @@ def test_dashboard_html_renders_summary_and_review_queue(monkeypatch, tmp_path):
     assert "TN Media Intelligence" in response.text
     assert "Needs review." in response.text
     assert "Pending Review" in response.text
+    assert "Latest Live Newspaper Items" in response.text
 
 
 def test_operator_token_blocks_confidential_dashboard_endpoint(monkeypatch, tmp_path):

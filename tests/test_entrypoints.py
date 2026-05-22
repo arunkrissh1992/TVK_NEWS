@@ -25,6 +25,7 @@ def test_run_daily_news_help_works_as_direct_script():
 
     assert result.returncode == 0
     assert "--date" in result.stdout
+    assert "--mock-ai" in result.stdout
 
 
 def test_run_x_recent_help_works_as_direct_script():
@@ -91,7 +92,7 @@ def test_main_accepts_empty_argv_and_uses_fakes(monkeypatch, capsys):
     monkeypatch.setattr(run_daily_news, "init_db", lambda factory: calls.append(("init_db", factory)))
     monkeypatch.setattr(run_daily_news, "DailyNewsPipeline", FakePipeline)
     monkeypatch.setattr(run_daily_news, "RequestsNewsClient", lambda: news_client)
-    monkeypatch.setattr(run_daily_news, "build_analyzer", lambda settings: analyzer)
+    monkeypatch.setattr(run_daily_news, "build_analyzer", lambda settings, *, mock_ai: analyzer)
     monkeypatch.setattr(
         run_daily_news,
         "build_daily_report_data",
@@ -145,13 +146,22 @@ def test_main_writes_daily_report_with_temp_db(monkeypatch, tmp_path):
     monkeypatch.setattr(run_daily_news, "create_session_factory", real_create_session_factory)
     monkeypatch.setattr(run_daily_news, "DailyNewsPipeline", FakePipeline)
     monkeypatch.setattr(run_daily_news, "RequestsNewsClient", lambda: object())
-    monkeypatch.setattr(run_daily_news, "build_analyzer", lambda settings: object())
+    monkeypatch.setattr(run_daily_news, "build_analyzer", lambda settings, *, mock_ai: object())
 
     run_daily_news.main(["--date", "2026-05-21"])
 
     report_path = report_dir / "daily-news-2026-05-21.md"
     assert report_path.exists()
     assert report_path.read_text(encoding="utf-8").startswith("# Daily Newspaper Intelligence Report - 2026-05-21")
+
+
+def test_run_daily_news_requires_openai_key_without_explicit_mock():
+    class FakeSettings:
+        openai_api_key = None
+        openai_model_item_classifier = "fake-model"
+
+    with pytest.raises(RuntimeError, match="OPENAI_API_KEY is required"):
+        run_daily_news.build_analyzer(FakeSettings(), mock_ai=False)
 
 
 def test_daily_news_dag_imports_without_airflow():
