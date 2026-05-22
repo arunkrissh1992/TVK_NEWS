@@ -38,6 +38,7 @@ def test_dashboard_summary_counts_analysis_and_review_status(tmp_path):
         analysis_one = save_ai_analysis(session, raw_one.id, negative, model_name="mock", prompt_version="v1")
         raw_two = save_raw_item(session, make_item().model_copy(update={"source_url": "https://example.com/two"}))
         save_ai_analysis(session, raw_two.id, positive, model_name="mock", prompt_version="v1")
+        save_ai_analysis(session, raw_two.id, positive, model_name="gpt-5-mini", prompt_version="v1")
         RAGIndexer(
             embedding_provider=HashEmbeddingProvider(dimension=8),
             vector_index=InMemoryVectorIndex(dimension=8),
@@ -57,16 +58,21 @@ def test_dashboard_summary_counts_analysis_and_review_status(tmp_path):
         session.commit()
 
     assert summary["total_items"] == 2
-    assert summary["total_analyses"] == 2
+    assert summary["total_analyses"] == 3
     assert summary["total_chunks"] >= 1
     assert summary["total_embeddings"] >= 1
+    assert summary["openai_analyses"] == 1
+    assert summary["mock_analyses"] == 2
     assert summary["needs_human_review"] == 1
     assert summary["reviewed"] == 1
     assert summary["pending_review"] == 0
-    assert summary["stance_counts"] == {"negative": 1, "positive": 1}
+    assert summary["stance_counts"] == {"negative": 1, "positive": 2}
     assert summary["severity_counts"]["high"] == 1
     assert summary["department_counts"]["transport"] == 1
     assert summary["district_counts"]["Chennai"] == 1
+    assert summary["source_counts"]["Example"] == 2
+    assert summary["analysis_model_counts"]["gpt-5-mini"] == 1
+    assert "local/hash-embedding-v1" in summary["embedding_provider_counts"]
 
 
 def test_review_queue_prioritizes_unreviewed_high_severity_items(tmp_path):
@@ -129,3 +135,32 @@ def test_latest_items_returns_recent_analyzed_newspaper_items(tmp_path):
     assert latest[0]["title"] == "Real newspaper item"
     assert latest[0]["summary"] == "Visible business demo summary."
     assert latest[0]["model_name"] == "mock"
+
+
+def test_latest_items_prefers_live_ai_analysis_over_mock_for_same_raw_item(tmp_path):
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'dashboard.db'}")
+    init_db(session_factory)
+
+    with session_factory() as session:
+        raw = save_raw_item(session, make_item().model_copy(update={"title": "Live AI item"}))
+        save_ai_analysis(
+            session,
+            raw.id,
+            make_analysis().model_copy(update={"summary_english": "Mock summary."}),
+            model_name="mock",
+            prompt_version="v1",
+        )
+        live_analysis = save_ai_analysis(
+            session,
+            raw.id,
+            make_analysis().model_copy(update={"summary_english": "OpenAI summary."}),
+            model_name="gpt-5-mini",
+            prompt_version="v1",
+        )
+        latest = list_latest_items(session, limit=10)
+        session.commit()
+
+    assert len(latest) == 1
+    assert latest[0]["analysis_id"] == live_analysis.id
+    assert latest[0]["summary"] == "OpenAI summary."
+    assert latest[0]["model_name"] == "gpt-5-mini"

@@ -29,6 +29,7 @@
           <a href="/dashboard/summary">Summary API</a>
           <a href="/review/queue">Review Queue</a>
           <a href="/reports">Reports</a>
+          <a href="/settings">Settings</a>
         </div>
       </nav>
     </header>
@@ -49,16 +50,42 @@
           <span>{{ summary.total_items }} items</span>
           <span>{{ summary.total_chunks }} chunks</span>
           <span>{{ summary.pending_review }} pending</span>
+          <span>{{ settings_status.openai_secret_status }}</span>
         </div>
       </section>
 
       <section class="metric-grid" aria-label="Dashboard summary">
         <article class="metric-card metric-card-primary"><span>Total Items</span><strong>{{ summary.total_items }}</strong></article>
         <article class="metric-card"><span>Analyses</span><strong>{{ summary.total_analyses }}</strong></article>
+        <article class="metric-card metric-card-success"><span>OpenAI Live</span><strong>{{ summary.openai_analyses }}</strong></article>
         <article class="metric-card"><span>RAG Chunks</span><strong>{{ summary.total_chunks }}</strong></article>
         <article class="metric-card"><span>Embeddings</span><strong>{{ summary.total_embeddings }}</strong></article>
         <article class="metric-card metric-card-warning"><span>Pending Review</span><strong>{{ summary.pending_review }}</strong></article>
-        <article class="metric-card metric-card-success"><span>Reviewed</span><strong>{{ summary.reviewed }}</strong></article>
+      </section>
+
+      <section class="official-grid" aria-label="Official demo readiness">
+        <article class="official-card">
+          <div class="official-card-title">
+            <span>OpenAI Status</span>
+            <strong>{{ settings_status.openai_secret_status }}</strong>
+          </div>
+          <dl>
+            <div><dt>Classifier</dt><dd>{{ settings_status.item_classifier_model }}</dd></div>
+            <div><dt>Report model</dt><dd>{{ settings_status.report_model }}</dd></div>
+            <div><dt>Embeddings</dt><dd>{{ settings_status.embedding_model }}</dd></div>
+          </dl>
+        </article>
+        <article class="official-card">
+          <div class="official-card-title">
+            <span>Official Demo Controls</span>
+            <strong>{{ settings_status.operator_guard }}</strong>
+          </div>
+          <dl>
+            <div><dt>Evidence policy</dt><dd>Public sources only</dd></div>
+            <div><dt>AI claims</dt><dd>Human review gated</dd></div>
+            <div><dt>Secrets</dt><dd>Hidden runtime config</dd></div>
+          </dl>
+        </article>
       </section>
 
       <div class="workspace-grid">
@@ -95,8 +122,47 @@
             <span>RAG Ready</span>
             <strong>{{ summary.total_embeddings }}</strong>
           </div>
+          <div class="rail-step">
+            <span>OpenAI Records</span>
+            <strong>{{ summary.openai_analyses }}</strong>
+          </div>
         </aside>
       </div>
+
+      <section class="panel audit-panel">
+        <div class="panel-heading">
+          <h2>Official Demo Log</h2>
+          <span>Traceable source, AI and report readiness</span>
+        </div>
+        <div class="audit-log">
+          {% for event in audit_events %}
+            <article class="audit-event">
+              <div>
+                <span>{{ event.stage }}</span>
+                <strong>{{ event.status }}</strong>
+              </div>
+              <p>{{ event.detail }}</p>
+            </article>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="panel source-panel">
+        <div class="panel-heading">
+          <h2>Source Coverage</h2>
+          <span>Newspaper evidence imported into the official demo workspace</span>
+        </div>
+        <div class="source-grid">
+          {% for source in summary.top_sources %}
+            <div class="source-row">
+              <span>{{ source.label }}</span>
+              <strong>{{ source.count }}</strong>
+            </div>
+          {% else %}
+            <p class="empty">No source coverage yet.</p>
+          {% endfor %}
+        </div>
+      </section>
 
       <section class="panel">
         <div class="panel-heading">

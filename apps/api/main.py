@@ -47,6 +47,76 @@ def _review_decision_payload(record: ReviewDecisionRecord) -> dict[str, object]:
     }
 
 
+def _list_report_files(report_dir: Path) -> list[dict[str, object]]:
+    if not report_dir.exists():
+        return []
+    return [
+        {
+            "filename": path.name,
+            "updated_at": path.stat().st_mtime,
+        }
+        for path in sorted(report_dir.glob("*.md"), key=lambda item: item.stat().st_mtime, reverse=True)
+        if path.is_file()
+    ]
+
+
+def _settings_status(settings: Settings) -> dict[str, object]:
+    openai_configured = bool(getattr(settings, "openai_api_key", None))
+    database_url = getattr(settings, "database_url", "")
+    return {
+        "openai_configured": openai_configured,
+        "openai_secret_status": "Configured and hidden" if openai_configured else "Not configured",
+        "item_classifier_model": getattr(settings, "openai_model_item_classifier", "not configured"),
+        "report_model": getattr(settings, "openai_model_report", "not configured"),
+        "embedding_model": getattr(settings, "openai_embedding_model", "not configured"),
+        "embedding_dimension": getattr(settings, "openai_embedding_dimension", "not configured"),
+        "database_kind": database_url.split(":", 1)[0] if database_url else "not configured",
+        "report_output_dir": str(getattr(settings, "report_output_dir", "")),
+        "operator_guard": "Enabled" if getattr(settings, "operator_api_token", None) else "Local demo mode",
+    }
+
+
+def _dashboard_audit_events(
+    *,
+    summary: dict[str, object],
+    settings_status: dict[str, object],
+    report_files: list[dict[str, object]],
+) -> list[dict[str, str]]:
+    openai_ready = bool(settings_status["openai_configured"])
+    openai_count = int(summary.get("openai_analyses", 0))
+    latest_report = report_files[0]["filename"] if report_files else "No report generated"
+    ai_status = "OpenAI live" if openai_ready and openai_count else "Configured, waiting for live run"
+    if not openai_ready:
+        ai_status = "Mock fallback only"
+    return [
+        {
+            "stage": "Source Registry",
+            "status": "Authorized public feeds",
+            "detail": f"{summary.get('total_items', 0)} newspaper evidence records stored with source URLs.",
+        },
+        {
+            "stage": "AI Classification",
+            "status": ai_status,
+            "detail": f"{openai_count} OpenAI analyses and {summary.get('mock_analyses', 0)} mock analyses retained for audit comparison.",
+        },
+        {
+            "stage": "RAG Evidence Index",
+            "status": "Ready",
+            "detail": f"{summary.get('total_chunks', 0)} chunks and {summary.get('total_embeddings', 0)} embeddings available for retrieval.",
+        },
+        {
+            "stage": "Human Review",
+            "status": "Controlled escalation",
+            "detail": f"{summary.get('pending_review', 0)} pending review items; sensitive claims remain review-gated.",
+        },
+        {
+            "stage": "Report Package",
+            "status": str(latest_report),
+            "detail": "Daily report output is generated from stored evidence and AI analysis, not hand-entered demo text.",
+        },
+    ]
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -122,10 +192,7 @@ def analyses(limit: int = 50) -> list[dict[str, object]]:
 @app.get("/reports")
 def reports() -> list[dict[str, str]]:
     settings = Settings()
-    report_dir = Path(settings.report_output_dir)
-    if not report_dir.exists():
-        return []
-    return [{"filename": path.name} for path in sorted(report_dir.glob("*.md")) if path.is_file()]
+    return [{"filename": str(item["filename"])} for item in _list_report_files(Path(settings.report_output_dir))]
 
 
 @app.get("/dashboard", response_class=HTMLResponse, dependencies=[Depends(require_operator)])
@@ -136,11 +203,39 @@ def dashboard_page(request: Request) -> HTMLResponse:
         summary = get_dashboard_summary(session)
         queue = list_review_queue(session, limit=50)
         latest_items = list_latest_items(session, limit=20)
+    settings_status = _settings_status(settings)
+    report_files = _list_report_files(Path(settings.report_output_dir))
     return templates.TemplateResponse(
         request,
         "dashboard.html",
-        {"summary": summary, "queue": queue, "latest_items": latest_items},
+        {
+            "summary": summary,
+            "queue": queue,
+            "latest_items": latest_items,
+            "settings_status": settings_status,
+            "audit_events": _dashboard_audit_events(
+                summary=summary,
+                settings_status=settings_status,
+                report_files=report_files,
+            ),
+            "report_files": report_files,
+        },
     )
+
+
+@app.get("/settings", response_class=HTMLResponse, dependencies=[Depends(require_operator)])
+def settings_page(request: Request) -> HTMLResponse:
+    settings = Settings()
+    return templates.TemplateResponse(
+        request,
+        "settings.html",
+        {"settings_status": _settings_status(settings)},
+    )
+
+
+@app.get("/settings/status", dependencies=[Depends(require_operator)])
+def settings_status() -> dict[str, object]:
+    return _settings_status(Settings())
 
 
 @app.get("/dashboard/summary", dependencies=[Depends(require_operator)])

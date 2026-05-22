@@ -45,6 +45,8 @@ uvicorn apps.api.main:app --host 127.0.0.1 --port 8000
 
 The internal review console is available at `http://127.0.0.1:8000/dashboard`.
 
+Runtime configuration status is available at `http://127.0.0.1:8000/settings`. This page only shows whether OpenAI is configured and which models are selected; it never renders API keys or tokens.
+
 For confidential deployments, set `OPERATOR_API_TOKEN` and send the token as `X-TNMI-Operator-Token` for dashboard and review APIs. This is a first local guard only; production deployments still need SSO/RBAC, private networking, audit logs, and managed secrets.
 
 ## Run X Recent Pipeline

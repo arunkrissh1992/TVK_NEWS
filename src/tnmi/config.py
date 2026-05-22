@@ -11,8 +11,8 @@ from tnmi.contracts import NewspaperSource, XHandleSource
 class Settings(BaseSettings):
     database_url: str = "sqlite:///./mediaintel.db"
     openai_api_key: str | None = None
-    openai_model_item_classifier: str = "gpt-5.4-mini"
-    openai_model_report: str = "gpt-5.5"
+    openai_model_item_classifier: str = "gpt-5-mini"
+    openai_model_report: str = "gpt-5.2"
     openai_embedding_model: str = "text-embedding-3-small"
     openai_embedding_dimension: int = 1536
     news_source_config: Path = Path("configs/sources.newspapers.yaml")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import Select, case, func, select
@@ -20,14 +21,45 @@ def _count_values(values: list[str | None]) -> dict[str, int]:
     return dict(Counter(value for value in values if value))
 
 
+def _top_counts(counts: dict[str, int], *, limit: int = 8) -> list[dict[str, int | str]]:
+    return [
+        {"label": label, "count": count}
+        for label, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]
+    ]
+
+
+def _latest_datetime(values: list[datetime | None]) -> datetime | None:
+    candidates = [value for value in values if value is not None]
+    if not candidates:
+        return None
+    return max(candidates, key=_utc_sort_key)
+
+
+def _utc_sort_key(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def get_dashboard_summary(session: Session) -> dict[str, Any]:
     analyses = session.scalars(select(AIAnalysisRecord).order_by(AIAnalysisRecord.id)).all()
+    items = session.scalars(select(RawItemRecord).order_by(RawItemRecord.id)).all()
+    embeddings = session.scalars(select(ChunkEmbeddingRecord).order_by(ChunkEmbeddingRecord.id)).all()
     reviewed_analysis_ids = set(session.scalars(select(ReviewDecisionRecord.analysis_id)).all())
+    source_counts = _count_values([row.source_name for row in items])
+    model_counts = _count_values([row.model_name for row in analyses])
+    embedding_provider_counts = _count_values(
+        [f"{row.provider_name}/{row.model_name}" for row in embeddings]
+    )
+    latest_ingested_at = _latest_datetime([row.ingested_at for row in items])
+    latest_analysis_at = _latest_datetime([row.created_at for row in analyses])
     return {
-        "total_items": session.scalar(select(func.count()).select_from(RawItemRecord)) or 0,
+        "total_items": len(items),
         "total_analyses": len(analyses),
         "total_chunks": session.scalar(select(func.count()).select_from(DocumentChunkRecord)) or 0,
-        "total_embeddings": session.scalar(select(func.count()).select_from(ChunkEmbeddingRecord)) or 0,
+        "total_embeddings": len(embeddings),
+        "openai_analyses": sum(1 for row in analyses if row.model_name != "mock"),
+        "mock_analyses": model_counts.get("mock", 0),
         "needs_human_review": sum(1 for row in analyses if row.needs_human_review),
         "reviewed": len(reviewed_analysis_ids),
         "pending_review": sum(1 for row in analyses if row.needs_human_review and row.id not in reviewed_analysis_ids),
@@ -35,6 +67,12 @@ def get_dashboard_summary(session: Session) -> dict[str, Any]:
         "severity_counts": _count_values([row.severity for row in analyses]),
         "department_counts": _count_values([row.department for row in analyses]),
         "district_counts": _count_values([row.district for row in analyses]),
+        "source_counts": source_counts,
+        "top_sources": _top_counts(source_counts),
+        "analysis_model_counts": model_counts,
+        "embedding_provider_counts": embedding_provider_counts,
+        "latest_ingested_at": latest_ingested_at,
+        "latest_analysis_at": latest_analysis_at,
     }
 
 
@@ -95,11 +133,20 @@ def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, An
         select(RawItemRecord, AIAnalysisRecord)
         .join(AIAnalysisRecord, AIAnalysisRecord.raw_item_id == RawItemRecord.id)
         .where(RawItemRecord.source_type == "news")
-        .order_by(RawItemRecord.ingested_at.desc(), RawItemRecord.id.desc())
-        .limit(bounded_limit)
+        .order_by(
+            RawItemRecord.ingested_at.desc(),
+            RawItemRecord.id.desc(),
+            case((AIAnalysisRecord.model_name == "mock", 0), else_=1).desc(),
+            AIAnalysisRecord.created_at.desc(),
+            AIAnalysisRecord.id.desc(),
+        )
     ).all()
-    return [
-        {
+
+    latest_by_raw_item: dict[int, dict[str, Any]] = {}
+    for item, analysis in rows:
+        if item.id in latest_by_raw_item:
+            continue
+        latest_by_raw_item[item.id] = {
             "raw_item_id": item.id,
             "analysis_id": analysis.id,
             "source_name": item.source_name,
@@ -117,5 +164,6 @@ def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, An
             "model_name": analysis.model_name,
             "prompt_version": analysis.prompt_version,
         }
-        for item, analysis in rows
-    ]
+        if len(latest_by_raw_item) >= bounded_limit:
+            break
+    return list(latest_by_raw_item.values())

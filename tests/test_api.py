@@ -202,6 +202,8 @@ def test_dashboard_html_renders_summary_and_review_queue(monkeypatch, tmp_path):
     assert "Daily Intelligence" in response.text
     assert "Investigation Desk" in response.text
     assert "Search evidence" in response.text
+    assert "Official Demo Log" in response.text
+    assert "OpenAI Live" in response.text
     assert "Needs review." in response.text
     assert "Pending Review" in response.text
     assert "RAG Chunks" in response.text
@@ -226,3 +228,31 @@ def test_operator_token_blocks_confidential_dashboard_endpoint(monkeypatch, tmp_
 
     assert blocked.status_code == 401
     assert allowed.status_code == 200
+
+
+def test_settings_page_and_status_mask_openai_secret(monkeypatch, tmp_path):
+    secret = "sk-test-do-not-render"
+
+    class FakeSettings:
+        database_url = f"sqlite:///{tmp_path / 'api-settings.db'}"
+        news_source_config = tmp_path / "missing.yaml"
+        report_output_dir = tmp_path / "reports"
+        operator_api_token = None
+        openai_api_key = secret
+        openai_model_item_classifier = "gpt-5-mini"
+        openai_model_report = "gpt-5.2"
+        openai_embedding_model = "text-embedding-3-small"
+        openai_embedding_dimension = 1536
+
+    monkeypatch.setattr(api_main, "Settings", FakeSettings)
+    client = TestClient(app)
+
+    page = client.get("/settings")
+    status = client.get("/settings/status")
+
+    assert page.status_code == 200
+    assert status.status_code == 200
+    assert "Configured and hidden" in page.text
+    assert secret not in page.text
+    assert status.json()["openai_configured"] is True
+    assert secret not in str(status.json())

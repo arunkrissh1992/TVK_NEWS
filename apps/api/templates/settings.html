@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Operator Settings - Tamil Nadu Public Media Intelligence</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <script src="/static/dashboard.js" defer></script>
+  </head>
+  <body class="dashboard-page">
+    <header class="site-header">
+      <div class="shell masthead">
+        <div class="brand-block">
+          <div class="brand-emblem" aria-hidden="true">TN</div>
+          <div>
+            <p class="eyebrow">Confidential Public Media Intelligence</p>
+            <h1>Operator Settings</h1>
+            <p class="subtitle">Runtime configuration status for official demo and production readiness</p>
+          </div>
+        </div>
+        <div class="status-card">
+          <span>Secrets</span>
+          <strong>Hidden</strong>
+        </div>
+      </div>
+      <nav class="nav-strip" aria-label="Dashboard sections">
+        <div class="shell nav-list">
+          <a href="/dashboard">Home</a>
+          <a href="/dashboard/summary">Summary API</a>
+          <a href="/review/queue">Review Queue</a>
+          <a href="/reports">Reports</a>
+          <a href="/settings">Settings</a>
+        </div>
+      </nav>
+    </header>
+
+    <main class="shell">
+      <section class="notice-band">
+        <strong>Secure Settings</strong>
+        <span>API keys are loaded from environment variables or a local git-ignored `.env` file and are never rendered on this page.</span>
+      </section>
+
+      <section class="settings-grid" aria-label="Runtime settings">
+        <article class="official-card">
+          <div class="official-card-title">
+            <span>OpenAI</span>
+            <strong>{{ settings_status.openai_secret_status }}</strong>
+          </div>
+          <dl>
+            <div><dt>Item classifier</dt><dd>{{ settings_status.item_classifier_model }}</dd></div>
+            <div><dt>Report model</dt><dd>{{ settings_status.report_model }}</dd></div>
+            <div><dt>Embedding model</dt><dd>{{ settings_status.embedding_model }}</dd></div>
+            <div><dt>Embedding dimension</dt><dd>{{ settings_status.embedding_dimension }}</dd></div>
+          </dl>
+        </article>
+
+        <article class="official-card">
+          <div class="official-card-title">
+            <span>Deployment</span>
+            <strong>{{ settings_status.operator_guard }}</strong>
+          </div>
+          <dl>
+            <div><dt>Database</dt><dd>{{ settings_status.database_kind }}</dd></div>
+            <div><dt>Reports</dt><dd>{{ settings_status.report_output_dir }}</dd></div>
+            <div><dt>Access guard</dt><dd>{{ settings_status.operator_guard }}</dd></div>
+            <div><dt>Secret display</dt><dd>Never shown</dd></div>
+          </dl>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>
