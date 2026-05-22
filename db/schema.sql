@@ -21,7 +21,7 @@ CREATE INDEX ix_raw_items_content_hash ON raw_items (content_hash);
 
 CREATE TABLE ai_analysis (
     id BIGSERIAL PRIMARY KEY,
-    raw_item_id BIGINT NOT NULL,
+    raw_item_id BIGINT NOT NULL REFERENCES raw_items(id) ON DELETE CASCADE,
     model_name VARCHAR(128) NOT NULL,
     prompt_version VARCHAR(64) NOT NULL,
     government_relevance VARCHAR(32) NOT NULL,

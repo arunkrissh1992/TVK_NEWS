@@ -1,5 +1,8 @@
 from datetime import datetime, timezone
 
+import pytest
+from sqlalchemy.exc import IntegrityError
+
 from tnmi.contracts import (
     AIAnalysis,
     GovernmentRelevance,
@@ -10,6 +13,42 @@ from tnmi.contracts import (
     Stance,
 )
 from tnmi.storage import create_session_factory, init_db, save_ai_analysis, save_raw_item
+
+
+def make_item() -> NormalizedItem:
+    return NormalizedItem(
+        source_type=SourceType.NEWS,
+        source_name="Example",
+        source_url="https://example.com/a",
+        published_at=None,
+        language="en",
+        title="Title",
+        raw_text_original="Government announced a scheme",
+        clean_text_original="Government announced a scheme",
+    )
+
+
+def make_analysis() -> AIAnalysis:
+    return AIAnalysis(
+        government_relevance=GovernmentRelevance.HIGH,
+        stance_toward_government=Stance.POSITIVE,
+        sentiment=Sentiment.POSITIVE,
+        target="Tamil Nadu Government",
+        department="welfare",
+        district="unknown",
+        scheme=None,
+        topic="scheme",
+        issue_category="welfare",
+        severity=Severity.LOW,
+        summary_original="Positive item.",
+        summary_english="Positive item.",
+        positive_points=["positive"],
+        negative_points=[],
+        evidence_quotes_original=["announced a scheme"],
+        evidence_quotes_english=["announced a scheme"],
+        confidence=0.9,
+        needs_human_review=False,
+    )
 
 
 def test_save_raw_item_is_idempotent_by_content_hash(tmp_path):
@@ -37,36 +76,8 @@ def test_save_raw_item_is_idempotent_by_content_hash(tmp_path):
 def test_save_ai_analysis_for_raw_item(tmp_path):
     session_factory = create_session_factory(f"sqlite:///{tmp_path / 'test.db'}")
     init_db(session_factory)
-    item = NormalizedItem(
-        source_type=SourceType.NEWS,
-        source_name="Example",
-        source_url="https://example.com/a",
-        published_at=None,
-        language="en",
-        title="Title",
-        raw_text_original="Government announced a scheme",
-        clean_text_original="Government announced a scheme",
-    )
-    analysis = AIAnalysis(
-        government_relevance=GovernmentRelevance.HIGH,
-        stance_toward_government=Stance.POSITIVE,
-        sentiment=Sentiment.POSITIVE,
-        target="Tamil Nadu Government",
-        department="welfare",
-        district="unknown",
-        scheme=None,
-        topic="scheme",
-        issue_category="welfare",
-        severity=Severity.LOW,
-        summary_original="Positive item.",
-        summary_english="Positive item.",
-        positive_points=["positive"],
-        negative_points=[],
-        evidence_quotes_original=["announced a scheme"],
-        evidence_quotes_english=["announced a scheme"],
-        confidence=0.9,
-        needs_human_review=False,
-    )
+    item = make_item()
+    analysis = make_analysis()
 
     with session_factory() as session:
         raw = save_raw_item(session, item)
@@ -74,3 +85,42 @@ def test_save_ai_analysis_for_raw_item(tmp_path):
         session.commit()
 
     assert saved.raw_item_id == raw.id
+
+
+def test_save_ai_analysis_rejects_nonexistent_raw_item(tmp_path):
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'test.db'}")
+    init_db(session_factory)
+
+    with session_factory() as session:
+        with pytest.raises(IntegrityError):
+            save_ai_analysis(session, 999, make_analysis(), model_name="mock", prompt_version="v1")
+
+
+def test_save_raw_item_recovers_from_duplicate_insert_conflict(tmp_path, monkeypatch):
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'test.db'}")
+    init_db(session_factory)
+    item = make_item()
+
+    with session_factory() as session:
+        existing = save_raw_item(session, item)
+        session.commit()
+        existing_id = existing.id
+
+    with session_factory() as session:
+        original_scalar = session.scalar
+        scalar_calls = 0
+
+        def scalar_with_race(*args, **kwargs):
+            nonlocal scalar_calls
+            scalar_calls += 1
+            if scalar_calls == 1:
+                return None
+            return original_scalar(*args, **kwargs)
+
+        monkeypatch.setattr(session, "scalar", scalar_with_race)
+
+        saved = save_raw_item(session, item)
+        session.commit()
+
+    assert saved.id == existing_id
+    assert scalar_calls == 2
