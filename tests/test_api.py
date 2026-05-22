@@ -75,3 +75,69 @@ newspapers:
     assert analyses.json()[0]["summary"] == "Positive item."
     assert reports.status_code == 200
     assert reports.json() == [{"filename": "daily-news-2026-05-21.md"}]
+
+
+def test_dashboard_json_and_review_queue_endpoints(monkeypatch, tmp_path):
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'api-dashboard.db'}")
+    init_db(session_factory)
+    with session_factory() as session:
+        raw = save_raw_item(session, make_item())
+        analysis = save_ai_analysis(
+            session,
+            raw.id,
+            make_analysis().model_copy(update={"needs_human_review": True}),
+            model_name="mock",
+            prompt_version="v1",
+        )
+        session.commit()
+
+    class FakeSettings:
+        database_url = f"sqlite:///{tmp_path / 'api-dashboard.db'}"
+        news_source_config = tmp_path / "missing.yaml"
+        report_output_dir = tmp_path / "reports"
+        operator_api_token = None
+
+    monkeypatch.setattr(api_main, "Settings", FakeSettings)
+    client = TestClient(app)
+
+    summary = client.get("/dashboard/summary")
+    queue = client.get("/review/queue")
+
+    assert summary.status_code == 200
+    assert summary.json()["needs_human_review"] == 1
+    assert queue.status_code == 200
+    assert queue.json()[0]["analysis_id"] == analysis.id
+
+
+def test_review_decision_endpoint_records_latest_review(monkeypatch, tmp_path):
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'api-review.db'}")
+    init_db(session_factory)
+    with session_factory() as session:
+        raw = save_raw_item(session, make_item())
+        analysis = save_ai_analysis(session, raw.id, make_analysis(), model_name="mock", prompt_version="v1")
+        session.commit()
+
+    class FakeSettings:
+        database_url = f"sqlite:///{tmp_path / 'api-review.db'}"
+        news_source_config = tmp_path / "missing.yaml"
+        report_output_dir = tmp_path / "reports"
+        operator_api_token = None
+
+    monkeypatch.setattr(api_main, "Settings", FakeSettings)
+    client = TestClient(app)
+
+    response = client.post(
+        "/review/decisions",
+        json={
+            "analysis_id": analysis.id,
+            "reviewer_name": "analyst-1",
+            "status": "approved",
+            "note": "Checked against article evidence.",
+        },
+    )
+    latest = client.get(f"/review/decisions/{analysis.id}")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "approved"
+    assert latest.status_code == 200
+    assert latest.json()["reviewer_name"] == "analyst-1"

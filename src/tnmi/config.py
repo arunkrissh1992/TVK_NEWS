@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     openai_model_report: str = "gpt-5.5"
     news_source_config: Path = Path("configs/sources.newspapers.yaml")
     report_output_dir: Path = Path("reports/generated")
+    operator_api_token: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

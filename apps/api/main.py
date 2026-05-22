@@ -2,14 +2,43 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException
 from sqlalchemy import select
 
 from tnmi import __version__
 from tnmi.config import Settings, load_newspaper_sources
-from tnmi.storage import AIAnalysisRecord, RawItemRecord, create_session_factory
+from tnmi.contracts import ReviewDecisionCreate
+from tnmi.dashboard import get_dashboard_summary, list_review_queue
+from tnmi.storage import (
+    AIAnalysisRecord,
+    RawItemRecord,
+    ReviewDecisionRecord,
+    create_session_factory,
+    get_latest_review_decision,
+    save_review_decision,
+)
 
 app = FastAPI(title="Tamil Nadu Media Intelligence API", version=__version__)
+
+
+def require_operator(x_tnmi_operator_token: str | None = Header(default=None)) -> None:
+    token = Settings().operator_api_token
+    if token and x_tnmi_operator_token != token:
+        raise HTTPException(status_code=401, detail="Operator token required")
+
+
+def _review_decision_payload(record: ReviewDecisionRecord) -> dict[str, object]:
+    return {
+        "id": record.id,
+        "analysis_id": record.analysis_id,
+        "reviewer_name": record.reviewer_name,
+        "status": record.status,
+        "note": record.note,
+        "corrected_stance": record.corrected_stance,
+        "corrected_relevance": record.corrected_relevance,
+        "corrected_summary": record.corrected_summary,
+        "created_at": record.created_at,
+    }
 
 
 @app.get("/health")
@@ -82,3 +111,40 @@ def reports() -> list[dict[str, str]]:
     if not report_dir.exists():
         return []
     return [{"filename": path.name} for path in sorted(report_dir.glob("*.md")) if path.is_file()]
+
+
+@app.get("/dashboard/summary", dependencies=[Depends(require_operator)])
+def dashboard_summary() -> dict[str, object]:
+    settings = Settings()
+    session_factory = create_session_factory(settings.database_url)
+    with session_factory() as session:
+        return get_dashboard_summary(session)
+
+
+@app.get("/review/queue", dependencies=[Depends(require_operator)])
+def review_queue(limit: int = 50) -> list[dict[str, object]]:
+    settings = Settings()
+    session_factory = create_session_factory(settings.database_url)
+    with session_factory() as session:
+        return list_review_queue(session, limit=limit)
+
+
+@app.post("/review/decisions", dependencies=[Depends(require_operator)])
+def create_review_decision(decision: ReviewDecisionCreate) -> dict[str, object]:
+    settings = Settings()
+    session_factory = create_session_factory(settings.database_url)
+    with session_factory() as session:
+        record = save_review_decision(session, decision)
+        session.commit()
+        return _review_decision_payload(record)
+
+
+@app.get("/review/decisions/{analysis_id}", dependencies=[Depends(require_operator)])
+def latest_review_decision(analysis_id: int) -> dict[str, object]:
+    settings = Settings()
+    session_factory = create_session_factory(settings.database_url)
+    with session_factory() as session:
+        record = get_latest_review_decision(session, analysis_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Review decision not found")
+        return _review_decision_payload(record)
