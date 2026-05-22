@@ -41,6 +41,19 @@ def test_run_x_recent_help_works_as_direct_script():
     assert "--max-results" in result.stdout
 
 
+def test_build_rag_index_help_works_as_direct_script():
+    result = subprocess.run(
+        [sys.executable, "pipelines/build_rag_index.py", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "--mock-embeddings" in result.stdout
+    assert "--limit" in result.stdout
+
+
 def test_invalid_date_exits_before_pipeline_setup(monkeypatch):
     def fail_if_called(*args, **kwargs):
         raise AssertionError("pipeline setup should not run for invalid dates")

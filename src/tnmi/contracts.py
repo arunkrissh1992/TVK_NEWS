@@ -152,3 +152,31 @@ class ReviewDecisionCreate(BaseModel):
     corrected_stance: Stance | None = None
     corrected_relevance: GovernmentRelevance | None = None
     corrected_summary: str | None = Field(default=None, max_length=4000)
+
+
+class DocumentChunk(BaseModel):
+    raw_item_id: int
+    source_type: SourceType
+    source_name: str
+    source_url: str
+    language: str
+    title: str | None = None
+    published_at: datetime | None = None
+    chunk_version: str
+    chunk_index: int = Field(ge=0)
+    chunk_text: str = Field(min_length=1)
+    token_estimate: int = Field(ge=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    def content_hash_input(self) -> str:
+        return json.dumps(
+            {
+                "raw_item_id": self.raw_item_id,
+                "chunk_version": self.chunk_version,
+                "chunk_index": self.chunk_index,
+                "chunk_text": self.chunk_text,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )

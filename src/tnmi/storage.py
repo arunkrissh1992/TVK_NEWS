@@ -24,7 +24,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
-from tnmi.contracts import AIAnalysis, NormalizedItem, ReviewDecisionCreate
+from tnmi.contracts import AIAnalysis, DocumentChunk, NormalizedItem, ReviewDecisionCreate
 
 
 ID_TYPE = BigInteger().with_variant(Integer, "sqlite")
@@ -136,6 +136,50 @@ class SourceCheckpointRecord(Base):
     )
 
 
+class DocumentChunkRecord(Base):
+    __tablename__ = "document_chunks"
+    __table_args__ = (
+        UniqueConstraint("raw_item_id", "chunk_version", "chunk_index", name="uq_document_chunk_raw_version_index"),
+    )
+
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    raw_item_id: Mapped[int] = mapped_column(ID_TYPE, ForeignKey("raw_items.id", ondelete="CASCADE"), index=True)
+    chunk_version: Mapped[str] = mapped_column(String(64), index=True)
+    chunk_index: Mapped[int] = mapped_column(Integer)
+    chunk_text: Mapped[str] = mapped_column(Text)
+    token_estimate: Mapped[int] = mapped_column(Integer)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, server_default=text("'{}'"))
+    content_hash: Mapped[str] = mapped_column(String(64), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+
+
+class ChunkEmbeddingRecord(Base):
+    __tablename__ = "chunk_embeddings"
+    __table_args__ = (
+        UniqueConstraint("chunk_id", "provider_name", "model_name", name="uq_chunk_embedding_provider_model"),
+    )
+
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    chunk_id: Mapped[int] = mapped_column(
+        ID_TYPE,
+        ForeignKey("document_chunks.id", ondelete="CASCADE"),
+        index=True,
+    )
+    provider_name: Mapped[str] = mapped_column(String(128), index=True)
+    model_name: Mapped[str] = mapped_column(String(128), index=True)
+    embedding_dimension: Mapped[int] = mapped_column(Integer)
+    embedding: Mapped[list[float]] = mapped_column(JSON_TYPE, default=list, server_default=text("'[]'"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+
+
 def create_session_factory(database_url: str) -> sessionmaker[Session]:
     engine = create_engine(database_url, future=True)
     if engine.dialect.name == "sqlite":
@@ -149,6 +193,10 @@ def init_db(session_factory: sessionmaker[Session]) -> None:
 
 def compute_content_hash(item: NormalizedItem) -> str:
     return hashlib.sha256(item.content_hash_input().encode("utf-8")).hexdigest()
+
+
+def compute_chunk_hash(chunk: DocumentChunk) -> str:
+    return hashlib.sha256(chunk.content_hash_input().encode("utf-8")).hexdigest()
 
 
 def save_raw_item(session: Session, item: NormalizedItem) -> RawItemRecord:
@@ -180,6 +228,117 @@ def save_raw_item(session: Session, item: NormalizedItem) -> RawItemRecord:
         raise
 
     return record
+
+
+def save_document_chunk(session: Session, chunk: DocumentChunk) -> DocumentChunkRecord:
+    existing = session.scalar(
+        select(DocumentChunkRecord).where(
+            DocumentChunkRecord.raw_item_id == chunk.raw_item_id,
+            DocumentChunkRecord.chunk_version == chunk.chunk_version,
+            DocumentChunkRecord.chunk_index == chunk.chunk_index,
+        )
+    )
+    if existing:
+        return existing
+
+    record = DocumentChunkRecord(
+        raw_item_id=chunk.raw_item_id,
+        chunk_version=chunk.chunk_version,
+        chunk_index=chunk.chunk_index,
+        chunk_text=chunk.chunk_text,
+        token_estimate=chunk.token_estimate,
+        metadata_json=chunk.metadata,
+        content_hash=compute_chunk_hash(chunk),
+    )
+    try:
+        with session.begin_nested():
+            session.add(record)
+            session.flush()
+    except IntegrityError:
+        existing = session.scalar(
+            select(DocumentChunkRecord).where(
+                DocumentChunkRecord.raw_item_id == chunk.raw_item_id,
+                DocumentChunkRecord.chunk_version == chunk.chunk_version,
+                DocumentChunkRecord.chunk_index == chunk.chunk_index,
+            )
+        )
+        if existing:
+            return existing
+        raise
+    return record
+
+
+def save_document_chunks(session: Session, chunks: list[DocumentChunk]) -> list[DocumentChunkRecord]:
+    return [save_document_chunk(session, chunk) for chunk in chunks]
+
+
+def get_document_chunks(
+    session: Session,
+    raw_item_id: int,
+    *,
+    chunk_version: str | None = None,
+) -> list[DocumentChunkRecord]:
+    statement = select(DocumentChunkRecord).where(DocumentChunkRecord.raw_item_id == raw_item_id)
+    if chunk_version is not None:
+        statement = statement.where(DocumentChunkRecord.chunk_version == chunk_version)
+    return list(session.scalars(statement.order_by(DocumentChunkRecord.chunk_index.asc())))
+
+
+def save_chunk_embedding(
+    session: Session,
+    *,
+    chunk_id: int,
+    provider_name: str,
+    model_name: str,
+    embedding: list[float],
+) -> ChunkEmbeddingRecord:
+    existing = get_chunk_embedding(
+        session,
+        chunk_id,
+        provider_name=provider_name,
+        model_name=model_name,
+    )
+    if existing:
+        return existing
+
+    record = ChunkEmbeddingRecord(
+        chunk_id=chunk_id,
+        provider_name=provider_name,
+        model_name=model_name,
+        embedding_dimension=len(embedding),
+        embedding=embedding,
+    )
+    try:
+        with session.begin_nested():
+            session.add(record)
+            session.flush()
+    except IntegrityError:
+        existing = get_chunk_embedding(
+            session,
+            chunk_id,
+            provider_name=provider_name,
+            model_name=model_name,
+        )
+        if existing:
+            return existing
+        raise
+    return record
+
+
+def get_chunk_embedding(
+    session: Session,
+    chunk_id: int,
+    *,
+    provider_name: str,
+    model_name: str,
+) -> ChunkEmbeddingRecord | None:
+    return session.scalar(
+        select(ChunkEmbeddingRecord).where(
+            ChunkEmbeddingRecord.chunk_id == chunk_id,
+            ChunkEmbeddingRecord.provider_name == provider_name,
+            ChunkEmbeddingRecord.model_name == model_name,
+        )
+    )
 
 
 def save_ai_analysis(

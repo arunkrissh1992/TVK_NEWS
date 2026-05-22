@@ -1,7 +1,10 @@
 from tests.test_storage import make_analysis, make_item
+from tnmi.embeddings import HashEmbeddingProvider
+from tnmi.rag import RAGIndexer
 from tnmi.contracts import GovernmentRelevance, ReviewDecisionCreate, ReviewStatus, Severity, Stance
 from tnmi.dashboard import get_dashboard_summary, list_latest_items, list_review_queue
 from tnmi.storage import create_session_factory, init_db, save_ai_analysis, save_raw_item, save_review_decision
+from tnmi.vector_index import InMemoryVectorIndex
 
 
 def test_dashboard_summary_counts_analysis_and_review_status(tmp_path):
@@ -35,6 +38,12 @@ def test_dashboard_summary_counts_analysis_and_review_status(tmp_path):
         analysis_one = save_ai_analysis(session, raw_one.id, negative, model_name="mock", prompt_version="v1")
         raw_two = save_raw_item(session, make_item().model_copy(update={"source_url": "https://example.com/two"}))
         save_ai_analysis(session, raw_two.id, positive, model_name="mock", prompt_version="v1")
+        RAGIndexer(
+            embedding_provider=HashEmbeddingProvider(dimension=8),
+            vector_index=InMemoryVectorIndex(dimension=8),
+            max_chars=24,
+            overlap_chars=6,
+        ).index_raw_item(session, raw_two)
         save_review_decision(
             session,
             ReviewDecisionCreate(
@@ -49,6 +58,8 @@ def test_dashboard_summary_counts_analysis_and_review_status(tmp_path):
 
     assert summary["total_items"] == 2
     assert summary["total_analyses"] == 2
+    assert summary["total_chunks"] >= 1
+    assert summary["total_embeddings"] >= 1
     assert summary["needs_human_review"] == 1
     assert summary["reviewed"] == 1
     assert summary["pending_review"] == 0

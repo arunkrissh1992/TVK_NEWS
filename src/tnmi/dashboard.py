@@ -6,7 +6,14 @@ from typing import Any
 from sqlalchemy import Select, case, func, select
 from sqlalchemy.orm import Session
 
-from tnmi.storage import AIAnalysisRecord, RawItemRecord, ReviewDecisionRecord, get_latest_review_decision
+from tnmi.storage import (
+    AIAnalysisRecord,
+    ChunkEmbeddingRecord,
+    DocumentChunkRecord,
+    RawItemRecord,
+    ReviewDecisionRecord,
+    get_latest_review_decision,
+)
 
 
 def _count_values(values: list[str | None]) -> dict[str, int]:
@@ -19,6 +26,8 @@ def get_dashboard_summary(session: Session) -> dict[str, Any]:
     return {
         "total_items": session.scalar(select(func.count()).select_from(RawItemRecord)) or 0,
         "total_analyses": len(analyses),
+        "total_chunks": session.scalar(select(func.count()).select_from(DocumentChunkRecord)) or 0,
+        "total_embeddings": session.scalar(select(func.count()).select_from(ChunkEmbeddingRecord)) or 0,
         "needs_human_review": sum(1 for row in analyses if row.needs_human_review),
         "reviewed": len(reviewed_analysis_ids),
         "pending_review": sum(1 for row in analyses if row.needs_human_review and row.id not in reviewed_analysis_ids),

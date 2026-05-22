@@ -13,11 +13,15 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_model_item_classifier: str = "gpt-5.4-mini"
     openai_model_report: str = "gpt-5.5"
+    openai_embedding_model: str = "text-embedding-3-small"
+    openai_embedding_dimension: int = 1536
     news_source_config: Path = Path("configs/sources.newspapers.yaml")
     x_source_config: Path = Path("configs/sources.x_handles.yaml")
     x_bearer_token: str | None = None
     report_output_dir: Path = Path("reports/generated")
     operator_api_token: str | None = None
+    rag_chunk_max_chars: int = 1200
+    rag_chunk_overlap_chars: int = 200
 
     model_config = SettingsConfigDict(
         env_file=".env",

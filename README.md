@@ -25,6 +25,16 @@ python -m pytest
 python pipelines/run_daily_news.py --date 2026-05-21
 ```
 
+## Build RAG Index
+
+Build local chunks and embeddings for already-ingested news:
+
+```powershell
+python pipelines/build_rag_index.py --mock-embeddings --source-type news
+```
+
+For real semantic embeddings, configure `OPENAI_API_KEY` and run without `--mock-embeddings`.
+
 ## Operator Dashboard
 
 Run the API:

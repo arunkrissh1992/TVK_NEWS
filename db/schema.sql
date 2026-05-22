@@ -81,3 +81,35 @@ CREATE TABLE source_checkpoints (
 
 CREATE INDEX ix_source_checkpoints_source_type ON source_checkpoints (source_type);
 CREATE INDEX ix_source_checkpoints_source_key ON source_checkpoints (source_key);
+
+CREATE TABLE document_chunks (
+    id BIGSERIAL PRIMARY KEY,
+    raw_item_id BIGINT NOT NULL REFERENCES raw_items(id) ON DELETE CASCADE,
+    chunk_version VARCHAR(64) NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    chunk_text TEXT NOT NULL,
+    token_estimate INTEGER NOT NULL,
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    content_hash VARCHAR(64) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_document_chunk_raw_version_index UNIQUE (raw_item_id, chunk_version, chunk_index)
+);
+
+CREATE INDEX ix_document_chunks_raw_item_id ON document_chunks (raw_item_id);
+CREATE INDEX ix_document_chunks_chunk_version ON document_chunks (chunk_version);
+CREATE INDEX ix_document_chunks_content_hash ON document_chunks (content_hash);
+
+CREATE TABLE chunk_embeddings (
+    id BIGSERIAL PRIMARY KEY,
+    chunk_id BIGINT NOT NULL REFERENCES document_chunks(id) ON DELETE CASCADE,
+    provider_name VARCHAR(128) NOT NULL,
+    model_name VARCHAR(128) NOT NULL,
+    embedding_dimension INTEGER NOT NULL,
+    embedding JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_chunk_embedding_provider_model UNIQUE (chunk_id, provider_name, model_name)
+);
+
+CREATE INDEX ix_chunk_embeddings_chunk_id ON chunk_embeddings (chunk_id);
+CREATE INDEX ix_chunk_embeddings_provider_name ON chunk_embeddings (provider_name);
+CREATE INDEX ix_chunk_embeddings_model_name ON chunk_embeddings (model_name);
