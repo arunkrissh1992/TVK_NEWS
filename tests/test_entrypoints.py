@@ -58,7 +58,7 @@ def test_main_accepts_empty_argv_and_uses_fakes(monkeypatch, capsys):
 
         def run(self, passed_sources):
             calls.append(passed_sources)
-            return PipelineResult(items_seen=2, items_saved=1, analyses_saved=1, failures=0)
+            return PipelineResult(items_seen=2, items_saved=1, analyses_saved=1, failures=0, sources_skipped=3)
 
     class FakeSessionFactory:
         def __call__(self):
@@ -95,7 +95,7 @@ def test_main_accepts_empty_argv_and_uses_fakes(monkeypatch, capsys):
 
     output = capsys.readouterr().out
     assert f"date={date.today().isoformat()}" in output
-    assert "items_seen=2 items_saved=1 analyses_saved=1 failures=0" in output
+    assert "items_seen=2 items_saved=1 analyses_saved=1 failures=0 sources_skipped=3" in output
     expected_report_path = Path("fake-reports") / f"daily-news-{date.today().isoformat()}.md"
     assert f"report_path={expected_report_path}" in output
     assert calls == [

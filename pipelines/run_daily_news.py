@@ -65,7 +65,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(
         f"date={args.date.isoformat()} items_seen={result.items_seen} "
         f"items_saved={result.items_saved} analyses_saved={result.analyses_saved} "
-        f"failures={result.failures} report_path={report_path}"
+        f"failures={result.failures} sources_skipped={result.sources_skipped} "
+        f"report_path={report_path}"
     )
 
 

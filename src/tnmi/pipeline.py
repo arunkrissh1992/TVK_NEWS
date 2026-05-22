@@ -177,6 +177,7 @@ class PipelineResult:
     items_saved: int = 0
     analyses_saved: int = 0
     failures: int = 0
+    sources_skipped: int = 0
 
 
 class DailyNewsPipeline:
@@ -196,10 +197,15 @@ class DailyNewsPipeline:
         items_saved = 0
         analyses_saved = 0
         failures = 0
+        sources_skipped = 0
 
         with self.session_factory() as session:
             for source in sources:
                 if not source.active:
+                    sources_skipped += 1
+                    continue
+                if not source.rss_urls:
+                    sources_skipped += 1
                     continue
                 source_allowed_hosts = allowed_article_hosts(source)
                 for rss_url in source.rss_urls:
@@ -266,4 +272,5 @@ class DailyNewsPipeline:
             items_saved=items_saved,
             analyses_saved=analyses_saved,
             failures=failures,
+            sources_skipped=sources_skipped,
         )

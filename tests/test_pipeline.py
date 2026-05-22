@@ -260,6 +260,34 @@ def test_daily_news_pipeline_allows_article_on_source_domain(tmp_path):
     assert result.analyses_saved == 1
 
 
+def test_daily_news_pipeline_reports_skipped_inactive_and_unconfigured_sources(tmp_path):
+    feed_xml = Path("tests/fixtures/sample_feed.xml").read_text(encoding="utf-8")
+    article_html = Path("tests/fixtures/sample_article.html").read_text(encoding="utf-8")
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'test.db'}")
+    init_db(session_factory)
+    client = InMemoryNewsClient(
+        feeds={"https://example.com/rss": feed_xml},
+        articles={"https://example.com/news/tamil-nadu-scheme": article_html},
+    )
+    pipeline = DailyNewsPipeline(
+        session_factory=session_factory,
+        news_client=client,
+        analyzer=MockAIAnalyzer(),
+    )
+    sources = [
+        NewspaperSource(name="Active Source", rss_urls=["https://example.com/rss"]),
+        NewspaperSource(name="Inactive Source", active=False),
+        NewspaperSource(name="Unconfigured Source", active=True, rss_urls=[]),
+    ]
+
+    result = pipeline.run(sources)
+
+    assert result.items_seen == 1
+    assert result.items_saved == 1
+    assert result.analyses_saved == 1
+    assert result.sources_skipped == 2
+
+
 def test_requests_news_client_blocks_redirect_to_disallowed_article_host(monkeypatch):
     calls: list[str] = []
 
