@@ -46,6 +46,13 @@ class Severity(StrEnum):
     CRITICAL = "critical"
 
 
+class ReviewStatus(StrEnum):
+    APPROVED = "approved"
+    ESCALATED = "escalated"
+    DISMISSED = "dismissed"
+    CORRECTED = "corrected"
+
+
 class NewspaperSource(BaseModel):
     name: str
     source_type: SourceType = SourceType.NEWS
@@ -103,3 +110,13 @@ class AIAnalysis(BaseModel):
     evidence_quotes_english: list[str] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0)
     needs_human_review: bool
+
+
+class ReviewDecisionCreate(BaseModel):
+    analysis_id: int
+    reviewer_name: str = Field(min_length=1, max_length=128)
+    status: ReviewStatus
+    note: str = Field(default="", max_length=4000)
+    corrected_stance: Stance | None = None
+    corrected_relevance: GovernmentRelevance | None = None
+    corrected_summary: str | None = Field(default=None, max_length=4000)

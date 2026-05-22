@@ -51,3 +51,19 @@ CREATE INDEX ix_ai_analysis_government_relevance ON ai_analysis (government_rele
 CREATE INDEX ix_ai_analysis_stance_toward_government ON ai_analysis (stance_toward_government);
 CREATE INDEX ix_ai_analysis_department ON ai_analysis (department);
 CREATE INDEX ix_ai_analysis_district ON ai_analysis (district);
+
+CREATE TABLE review_decisions (
+    id BIGSERIAL PRIMARY KEY,
+    analysis_id BIGINT NOT NULL REFERENCES ai_analysis(id) ON DELETE CASCADE,
+    reviewer_name VARCHAR(128) NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    corrected_stance VARCHAR(32),
+    corrected_relevance VARCHAR(32),
+    corrected_summary TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX ix_review_decisions_analysis_id ON review_decisions (analysis_id);
+CREATE INDEX ix_review_decisions_reviewer_name ON review_decisions (reviewer_name);
+CREATE INDEX ix_review_decisions_status ON review_decisions (status);

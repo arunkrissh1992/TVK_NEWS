@@ -24,7 +24,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
-from tnmi.contracts import AIAnalysis, NormalizedItem
+from tnmi.contracts import AIAnalysis, NormalizedItem, ReviewDecisionCreate
 
 
 ID_TYPE = BigInteger().with_variant(Integer, "sqlite")
@@ -91,6 +91,24 @@ class AIAnalysisRecord(Base):
     evidence_quotes_english: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list, server_default=text("'[]'"))
     confidence: Mapped[float] = mapped_column(Float)
     needs_human_review: Mapped[bool]
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+
+
+class ReviewDecisionRecord(Base):
+    __tablename__ = "review_decisions"
+
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    analysis_id: Mapped[int] = mapped_column(ID_TYPE, ForeignKey("ai_analysis.id", ondelete="CASCADE"), index=True)
+    reviewer_name: Mapped[str] = mapped_column(String(128), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    note: Mapped[str] = mapped_column(Text, default="", server_default="")
+    corrected_stance: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    corrected_relevance: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    corrected_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -217,4 +235,28 @@ def get_ai_analysis(
             AIAnalysisRecord.model_name == model_name,
             AIAnalysisRecord.prompt_version == prompt_version,
         )
+    )
+
+
+def save_review_decision(session: Session, decision: ReviewDecisionCreate) -> ReviewDecisionRecord:
+    record = ReviewDecisionRecord(
+        analysis_id=decision.analysis_id,
+        reviewer_name=decision.reviewer_name.strip(),
+        status=decision.status.value,
+        note=decision.note.strip(),
+        corrected_stance=decision.corrected_stance.value if decision.corrected_stance else None,
+        corrected_relevance=decision.corrected_relevance.value if decision.corrected_relevance else None,
+        corrected_summary=decision.corrected_summary.strip() if decision.corrected_summary else None,
+    )
+    session.add(record)
+    session.flush()
+    return record
+
+
+def get_latest_review_decision(session: Session, analysis_id: int) -> ReviewDecisionRecord | None:
+    return session.scalar(
+        select(ReviewDecisionRecord)
+        .where(ReviewDecisionRecord.analysis_id == analysis_id)
+        .order_by(ReviewDecisionRecord.created_at.desc(), ReviewDecisionRecord.id.desc())
+        .limit(1)
     )
