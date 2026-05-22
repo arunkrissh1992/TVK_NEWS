@@ -18,6 +18,7 @@ from sqlalchemy import (
     event,
     func,
     select,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
@@ -58,7 +59,7 @@ class RawItemRecord(Base):
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     raw_text_original: Mapped[str] = mapped_column(Text)
     clean_text_original: Mapped[str] = mapped_column(Text)
-    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, server_default=text("'{}'"))
     content_hash: Mapped[str] = mapped_column(String(64), index=True)
 
 
@@ -81,10 +82,10 @@ class AIAnalysisRecord(Base):
     severity: Mapped[str] = mapped_column(String(64))
     summary_original: Mapped[str] = mapped_column(Text)
     summary_english: Mapped[str] = mapped_column(Text)
-    positive_points: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list)
-    negative_points: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list)
-    evidence_quotes_original: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list)
-    evidence_quotes_english: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list)
+    positive_points: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list, server_default=text("'[]'"))
+    negative_points: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list, server_default=text("'[]'"))
+    evidence_quotes_original: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list, server_default=text("'[]'"))
+    evidence_quotes_english: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list, server_default=text("'[]'"))
     confidence: Mapped[float] = mapped_column(Float)
     needs_human_review: Mapped[bool]
     created_at: Mapped[datetime] = mapped_column(

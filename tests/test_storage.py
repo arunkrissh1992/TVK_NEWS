@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 
 import pytest
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.schema import CreateTable
 
 from tnmi.contracts import (
     AIAnalysis,
@@ -12,7 +14,14 @@ from tnmi.contracts import (
     SourceType,
     Stance,
 )
-from tnmi.storage import create_session_factory, init_db, save_ai_analysis, save_raw_item
+from tnmi.storage import (
+    AIAnalysisRecord,
+    RawItemRecord,
+    create_session_factory,
+    init_db,
+    save_ai_analysis,
+    save_raw_item,
+)
 
 
 def make_item() -> NormalizedItem:
@@ -124,3 +133,15 @@ def test_save_raw_item_recovers_from_duplicate_insert_conflict(tmp_path, monkeyp
 
     assert saved.id == existing_id
     assert scalar_calls == 2
+
+
+def test_postgresql_ddl_includes_json_server_defaults():
+    dialect = postgresql.dialect()
+    raw_items_ddl = str(CreateTable(RawItemRecord.__table__).compile(dialect=dialect))
+    ai_analysis_ddl = str(CreateTable(AIAnalysisRecord.__table__).compile(dialect=dialect))
+
+    assert "metadata_json JSONB DEFAULT '{}'" in raw_items_ddl
+    assert "positive_points JSONB DEFAULT '[]'" in ai_analysis_ddl
+    assert "negative_points JSONB DEFAULT '[]'" in ai_analysis_ddl
+    assert "evidence_quotes_original JSONB DEFAULT '[]'" in ai_analysis_ddl
+    assert "evidence_quotes_english JSONB DEFAULT '[]'" in ai_analysis_ddl
