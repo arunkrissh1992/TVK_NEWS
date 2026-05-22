@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
-from typing import Protocol
+from collections.abc import Iterable
+from typing import Any, Protocol
 
 from openai import OpenAI
 
@@ -16,6 +16,10 @@ from tnmi.contracts import (
 
 
 PROMPT_VERSION = "newspaper-stance-v1"
+
+
+class AIAnalysisError(RuntimeError):
+    """Raised when an AI provider cannot return a usable analysis."""
 
 
 class AIAnalyzer(Protocol):
@@ -65,13 +69,23 @@ class OpenAIAnalyzer:
 
     def analyze(self, item: NormalizedItem) -> AIAnalysis:
         prompt = build_classification_prompt(item)
-        response = self.client.responses.create(
+        response = self.client.responses.parse(
             model=self.model_name,
-            input=prompt,
-            text={"format": {"type": "json_object"}},
+            input=[
+                {
+                    "role": "system",
+                    "content": "Return schema-bound structured analysis for Tamil Nadu media.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            text_format=AIAnalysis,
         )
-        payload = json.loads(response.output_text)
-        return AIAnalysis.model_validate(payload)
+        parsed = response.output_parsed
+        if parsed is None:
+            raise AIAnalysisError(_missing_output_message(response))
+        if isinstance(parsed, dict):
+            return AIAnalysis.model_validate(parsed)
+        return parsed
 
 
 def build_classification_prompt(item: NormalizedItem) -> str:
@@ -83,6 +97,7 @@ Do not over-translate slogans, sarcasm, allegations, or local political phrases.
 Classify stance toward the Tamil Nadu Government only from evidence in the text.
 If the content is not about the Tamil Nadu Government, government_relevance must be "none".
 If a claim is an allegation, needs_human_review must be true.
+Populate the scheme name only when explicitly mentioned; otherwise null.
 
 Return JSON only with this schema:
 {{
@@ -92,7 +107,7 @@ Return JSON only with this schema:
   "target": "...",
   "department": "...",
   "district": "...",
-  "scheme": null,
+  "scheme": "string|null",
   "topic": "...",
   "issue_category": "...",
   "severity": "low|medium|high|critical",
@@ -113,3 +128,61 @@ Title: {item.title or ""}
 Text:
 {item.clean_text_original}
 """.strip()
+
+
+def _missing_output_message(response: Any) -> str:
+    details: list[str] = []
+    incomplete_reason = _safe_path(response, "incomplete_details", "reason")
+    if incomplete_reason:
+        details.append(f"incomplete_reason={incomplete_reason}")
+
+    refusals = _collect_refusals(response)
+    if refusals:
+        details.append(f"refusal={'; '.join(refusals)}")
+
+    message = "OpenAI structured analysis response did not include parsed output"
+    if details:
+        message = f"{message}: {', '.join(details)}"
+    return message
+
+
+def _collect_refusals(response: Any) -> list[str]:
+    refusals: list[str] = []
+    _append_text(refusals, _safe_getattr(response, "refusal"))
+
+    for output_item in _safe_iterable(_safe_getattr(response, "output")):
+        _append_text(refusals, _safe_getattr(output_item, "refusal"))
+        for content_item in _safe_iterable(_safe_getattr(output_item, "content")):
+            _append_text(refusals, _safe_getattr(content_item, "refusal"))
+
+    return refusals
+
+
+def _safe_path(obj: Any, *path: str) -> Any:
+    current = obj
+    for name in path:
+        current = _safe_getattr(current, name)
+        if current is None:
+            return None
+    return current
+
+
+def _safe_getattr(obj: Any, name: str) -> Any:
+    try:
+        return getattr(obj, name, None)
+    except Exception:
+        return None
+
+
+def _safe_iterable(value: Any) -> Iterable[Any]:
+    if value is None or isinstance(value, str):
+        return ()
+    try:
+        return iter(value)
+    except TypeError:
+        return ()
+
+
+def _append_text(values: list[str], value: Any) -> None:
+    if isinstance(value, str) and value:
+        values.append(value)
