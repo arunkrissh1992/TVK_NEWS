@@ -2,6 +2,10 @@
 
 Tamil-first public media intelligence platform for newspaper, social, and video analysis.
 
+## Engineering Standard
+
+All work in this repository must follow the senior-level quality rules in [AGENTS.md](AGENTS.md) and [docs/engineering/QUALITY_BAR.md](docs/engineering/QUALITY_BAR.md). Code must be maintainable, well-tested, security-conscious, and production-shaped from the start.
+
 ## Milestone 1
 
 Daily newspaper ingestion and AI analysis.
