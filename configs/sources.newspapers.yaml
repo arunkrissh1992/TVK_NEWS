@@ -1,0 +1,30 @@
+newspapers:
+  - name: The Hindu Tamil Thisai
+    language_hint: ta
+    priority: 1
+    active: true
+    rss_urls:
+      - https://www.hindutamil.in/rss
+    sitemap_urls: []
+    section_urls: []
+    legal_notes: Public RSS source; verify production access and terms before launch.
+
+  - name: Dinamalar
+    language_hint: ta
+    priority: 1
+    active: true
+    rss_urls: []
+    sitemap_urls: []
+    section_urls:
+      - https://www.dinamalar.com/
+    legal_notes: Public website source; configure approved RSS/sitemap if available.
+
+  - name: Dinamani
+    language_hint: ta
+    priority: 1
+    active: true
+    rss_urls: []
+    sitemap_urls: []
+    section_urls:
+      - https://www.dinamani.com/
+    legal_notes: Public website source; configure approved RSS/sitemap if available.
