@@ -9,7 +9,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
 from tnmi import __version__
-from tnmi.config import Settings, load_newspaper_sources
+from tnmi.config import Settings, load_newspaper_sources, load_x_handle_sources
 from tnmi.contracts import ReviewDecisionCreate
 from tnmi.dashboard import get_dashboard_summary, list_review_queue
 from tnmi.storage import (
@@ -61,6 +61,15 @@ def version() -> dict[str, str]:
 def sources() -> list[dict[str, object]]:
     settings = Settings()
     return [source.model_dump(mode="json") for source in load_newspaper_sources(settings.news_source_config)]
+
+
+@app.get("/sources/x")
+def x_sources() -> list[dict[str, object]]:
+    settings = Settings()
+    return [
+        {**source.model_dump(mode="json"), "source_name": source.source_name}
+        for source in load_x_handle_sources(settings.x_source_config)
+    ]
 
 
 @app.get("/items")

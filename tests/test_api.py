@@ -77,6 +77,35 @@ newspapers:
     assert reports.json() == [{"filename": "daily-news-2026-05-21.md"}]
 
 
+def test_x_sources_endpoint_returns_configured_handles(monkeypatch, tmp_path):
+    x_config = tmp_path / "x.yaml"
+    x_config.write_text(
+        """
+x_handles:
+  - handle: ExampleTNNews
+    display_name: Example TN News
+    active: false
+""",
+        encoding="utf-8",
+    )
+
+    class FakeSettings:
+        database_url = f"sqlite:///{tmp_path / 'api.db'}"
+        news_source_config = tmp_path / "missing-news.yaml"
+        x_source_config = x_config
+        report_output_dir = tmp_path / "reports"
+        operator_api_token = None
+
+    monkeypatch.setattr(api_main, "Settings", FakeSettings)
+    client = TestClient(app)
+
+    response = client.get("/sources/x")
+
+    assert response.status_code == 200
+    assert response.json()[0]["handle"] == "ExampleTNNews"
+    assert response.json()[0]["source_name"] == "@ExampleTNNews"
+
+
 def test_dashboard_json_and_review_queue_endpoints(monkeypatch, tmp_path):
     session_factory = create_session_factory(f"sqlite:///{tmp_path / 'api-dashboard.db'}")
     init_db(session_factory)

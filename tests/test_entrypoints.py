@@ -27,6 +27,19 @@ def test_run_daily_news_help_works_as_direct_script():
     assert "--date" in result.stdout
 
 
+def test_run_x_recent_help_works_as_direct_script():
+    result = subprocess.run(
+        [sys.executable, "pipelines/run_x_recent.py", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "--limit-handles" in result.stdout
+    assert "--max-results" in result.stdout
+
+
 def test_invalid_date_exits_before_pipeline_setup(monkeypatch):
     def fail_if_called(*args, **kwargs):
         raise AssertionError("pipeline setup should not run for invalid dates")
@@ -154,3 +167,64 @@ def test_daily_news_dag_task_invokes_main_with_empty_argv():
     source = Path("pipelines/dags/daily_news_intelligence.py").read_text(encoding="utf-8")
 
     assert "main([])" in source
+
+
+def test_run_x_recent_missing_token_exits_before_pipeline_setup(monkeypatch):
+    import pipelines.run_x_recent as run_x_recent
+
+    class FakeSettings:
+        x_bearer_token = None
+        openai_api_key = "fake-openai"
+        openai_model_item_classifier = "fake-model"
+        x_source_config = "fake-x.yaml"
+        database_url = "sqlite:///fake.db"
+
+    monkeypatch.setattr(run_x_recent, "Settings", FakeSettings)
+
+    with pytest.raises(SystemExit):
+        run_x_recent.main(["--mock-ai"])
+
+
+def test_run_x_recent_uses_fakes_and_prints_summary(monkeypatch, capsys):
+    import pipelines.run_x_recent as run_x_recent
+    from tnmi.x_ingestion import XIngestionResult
+
+    calls: list[object] = []
+    sources = [object(), object()]
+    session_factory = object()
+
+    class FakeSettings:
+        x_bearer_token = "fake-token"
+        openai_api_key = None
+        openai_model_item_classifier = "fake-model"
+        x_source_config = "fake-x.yaml"
+        database_url = "sqlite:///fake.db"
+
+    class FakePipeline:
+        def __init__(self, *, session_factory, x_client, analyzer):
+            calls.append((session_factory, x_client, analyzer))
+
+        def run(self, passed_sources, *, max_results):
+            calls.append((passed_sources, max_results))
+            return XIngestionResult(
+                handles_seen=len(passed_sources),
+                handles_skipped=1,
+                posts_seen=3,
+                items_saved=2,
+                analyses_saved=2,
+                failures=0,
+            )
+
+    monkeypatch.setattr(run_x_recent, "Settings", FakeSettings)
+    monkeypatch.setattr(run_x_recent, "load_x_handle_sources", lambda path: sources)
+    monkeypatch.setattr(run_x_recent, "create_session_factory", lambda url: session_factory)
+    monkeypatch.setattr(run_x_recent, "init_db", lambda factory: calls.append(("init_db", factory)))
+    monkeypatch.setattr(run_x_recent, "TweepyXClient", lambda token: f"client:{token}")
+    monkeypatch.setattr(run_x_recent, "DailyXPipeline", FakePipeline)
+
+    run_x_recent.main(["--mock-ai", "--limit-handles", "1", "--max-results", "25"])
+
+    output = capsys.readouterr().out
+    assert "handles_seen=1 handles_skipped=1 posts_seen=3 items_saved=2 analyses_saved=2 failures=0" in output
+    assert calls[0] == ("init_db", session_factory)
+    assert calls[2] == ([sources[0]], 25)
