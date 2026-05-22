@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+import sys
 from datetime import datetime
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 try:
     from airflow.decorators import dag, task
@@ -23,7 +30,7 @@ if dag and task:
         def run_daily_news_pipeline():
             from pipelines.run_daily_news import main
 
-            main()
+            main([])
 
         run_daily_news_pipeline()
 

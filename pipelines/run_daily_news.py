@@ -4,6 +4,7 @@ import argparse
 import sys
 from datetime import date
 from pathlib import Path
+from typing import Sequence
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +18,13 @@ from tnmi.pipeline import DailyNewsPipeline, RequestsNewsClient
 from tnmi.storage import create_session_factory, init_db
 
 
+def parse_news_date(value: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid ISO date: {value}") from exc
+
+
 def build_analyzer(settings: Settings):
     if settings.openai_api_key:
         return OpenAIAnalyzer(
@@ -26,10 +34,10 @@ def build_analyzer(settings: Settings):
     return MockAIAnalyzer()
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--date", default=date.today().isoformat())
-    args = parser.parse_args()
+    parser.add_argument("--date", type=parse_news_date, default=date.today())
+    args = parser.parse_args(argv)
 
     settings = Settings()
     sources = load_newspaper_sources(settings.news_source_config)
@@ -42,7 +50,7 @@ def main() -> None:
     )
     result = pipeline.run(sources)
     print(
-        f"date={args.date} items_seen={result.items_seen} "
+        f"date={args.date.isoformat()} items_seen={result.items_seen} "
         f"items_saved={result.items_saved} analyses_saved={result.analyses_saved} "
         f"failures={result.failures}"
     )
