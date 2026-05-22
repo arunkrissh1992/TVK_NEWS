@@ -200,6 +200,8 @@ def test_dashboard_html_renders_summary_and_review_queue(monkeypatch, tmp_path):
     assert response.status_code == 200
     assert "Tamil Nadu Public Media Intelligence" in response.text
     assert "Daily Intelligence" in response.text
+    assert "Investigation Desk" in response.text
+    assert "Search evidence" in response.text
     assert "Needs review." in response.text
     assert "Pending Review" in response.text
     assert "RAG Chunks" in response.text

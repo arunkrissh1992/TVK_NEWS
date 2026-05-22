@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Tamil Nadu Public Media Intelligence</title>
     <link rel="stylesheet" href="/static/dashboard.css">
+    <script src="/static/dashboard.js" defer></script>
   </head>
-  <body>
+  <body class="dashboard-page">
     <header class="site-header">
       <div class="shell masthead">
         <div class="brand-block">
@@ -38,33 +39,64 @@
         <span>AI findings are evidence-backed working intelligence and require human review for sensitive claims.</span>
       </section>
 
-      <section class="metric-grid" aria-label="Dashboard summary">
-        <article><span>Total Items</span><strong>{{ summary.total_items }}</strong></article>
-        <article><span>Analyses</span><strong>{{ summary.total_analyses }}</strong></article>
-        <article><span>RAG Chunks</span><strong>{{ summary.total_chunks }}</strong></article>
-        <article><span>Embeddings</span><strong>{{ summary.total_embeddings }}</strong></article>
-        <article><span>Pending Review</span><strong>{{ summary.pending_review }}</strong></article>
-        <article><span>Reviewed</span><strong>{{ summary.reviewed }}</strong></article>
+      <section class="investigation-hero">
+        <div>
+          <p class="section-kicker">Live Newspaper Demo</p>
+          <h2>Investigation Desk</h2>
+          <p>Monitor AI-classified public media, inspect original Tamil evidence, and prepare review-ready daily intelligence.</p>
+        </div>
+        <div class="hero-stats" aria-label="Investigation status">
+          <span>{{ summary.total_items }} items</span>
+          <span>{{ summary.total_chunks }} chunks</span>
+          <span>{{ summary.pending_review }} pending</span>
+        </div>
       </section>
 
-      <section class="split panel-row">
-        <div>
-          <h2>Stance</h2>
-          <dl>
-            {% for label, count in summary.stance_counts.items() %}
-              <div><dt>{{ label }}</dt><dd>{{ count }}</dd></div>
-            {% endfor %}
-          </dl>
-        </div>
-        <div>
-          <h2>Severity</h2>
-          <dl>
-            {% for label, count in summary.severity_counts.items() %}
-              <div><dt>{{ label }}</dt><dd>{{ count }}</dd></div>
-            {% endfor %}
-          </dl>
-        </div>
+      <section class="metric-grid" aria-label="Dashboard summary">
+        <article class="metric-card metric-card-primary"><span>Total Items</span><strong>{{ summary.total_items }}</strong></article>
+        <article class="metric-card"><span>Analyses</span><strong>{{ summary.total_analyses }}</strong></article>
+        <article class="metric-card"><span>RAG Chunks</span><strong>{{ summary.total_chunks }}</strong></article>
+        <article class="metric-card"><span>Embeddings</span><strong>{{ summary.total_embeddings }}</strong></article>
+        <article class="metric-card metric-card-warning"><span>Pending Review</span><strong>{{ summary.pending_review }}</strong></article>
+        <article class="metric-card metric-card-success"><span>Reviewed</span><strong>{{ summary.reviewed }}</strong></article>
       </section>
+
+      <div class="workspace-grid">
+        <section class="split panel-row" aria-label="Classification summaries">
+          <div>
+            <h2>Stance</h2>
+            <dl>
+              {% for label, count in summary.stance_counts.items() %}
+                <div><dt>{{ label }}</dt><dd>{{ count }}</dd></div>
+              {% endfor %}
+            </dl>
+          </div>
+          <div>
+            <h2>Severity</h2>
+            <dl>
+              {% for label, count in summary.severity_counts.items() %}
+                <div><dt>{{ label }}</dt><dd>{{ count }}</dd></div>
+              {% endfor %}
+            </dl>
+          </div>
+        </section>
+
+        <aside class="insight-rail" aria-label="Pipeline status">
+          <h2>Pipeline State</h2>
+          <div class="rail-step">
+            <span>RSS Import</span>
+            <strong>{{ summary.total_items }}</strong>
+          </div>
+          <div class="rail-step">
+            <span>AI Analysis</span>
+            <strong>{{ summary.total_analyses }}</strong>
+          </div>
+          <div class="rail-step">
+            <span>RAG Ready</span>
+            <strong>{{ summary.total_embeddings }}</strong>
+          </div>
+        </aside>
+      </div>
 
       <section class="panel">
         <div class="panel-heading">
@@ -93,14 +125,41 @@
       <section class="panel">
         <div class="panel-heading">
           <h2>Latest Live Newspaper Items</h2>
-          <span>RSS article evidence converted into AI-ready records</span>
+          <span id="visible-evidence-count">RSS article evidence converted into AI-ready records</span>
+        </div>
+        <div class="evidence-toolbar" aria-label="Evidence filters">
+          <label>
+            <span>Search evidence</span>
+            <input id="evidence-search" type="search" placeholder="Search title, source, stance or summary">
+          </label>
+          <label>
+            <span>Stance</span>
+            <select id="stance-filter">
+              <option value="">All stance</option>
+              <option value="positive">Positive</option>
+              <option value="negative">Negative</option>
+              <option value="mixed">Mixed</option>
+              <option value="neutral">Neutral</option>
+            </select>
+          </label>
+          <label>
+            <span>Source</span>
+            <select id="source-filter">
+              <option value="">All sources</option>
+            </select>
+          </label>
         </div>
         <div class="queue">
           {% for item in latest_items %}
-            <article class="queue-item">
+            <article
+              class="queue-item evidence-record"
+              data-role="latest-record"
+              data-stance="{{ item.stance }}"
+              data-source="{{ item.source_name }}"
+            >
               <div class="queue-meta">
                 <span>{{ item.source_name }}</span>
-                <span>{{ item.stance }}</span>
+                <span class="stance-chip stance-{{ item.stance }}">{{ item.stance }}</span>
                 <span>{{ item.department }}</span>
                 <span>{{ item.district }}</span>
                 <span>AI {{ item.model_name }}</span>
@@ -108,9 +167,14 @@
                   <span>review</span>
                 {% endif %}
               </div>
-              <h3>{{ item.title or "Untitled item" }}</h3>
-              <p>{{ item.summary }}</p>
-              <a href="{{ item.source_url }}" rel="noreferrer" target="_blank">Open source</a>
+              <div class="evidence-layout">
+                <div class="record-index">{{ loop.index }}</div>
+                <div class="record-body">
+                  <h3>{{ item.title or "Untitled item" }}</h3>
+                  <p>{{ item.summary }}</p>
+                  <a href="{{ item.source_url }}" rel="noreferrer" target="_blank">Open source</a>
+                </div>
+              </div>
             </article>
           {% else %}
             <p class="empty">No newspaper items ingested yet.</p>
