@@ -67,3 +67,17 @@ CREATE TABLE review_decisions (
 CREATE INDEX ix_review_decisions_analysis_id ON review_decisions (analysis_id);
 CREATE INDEX ix_review_decisions_reviewer_name ON review_decisions (reviewer_name);
 CREATE INDEX ix_review_decisions_status ON review_decisions (status);
+
+CREATE TABLE source_checkpoints (
+    id BIGSERIAL PRIMARY KEY,
+    source_type VARCHAR(64) NOT NULL,
+    source_key VARCHAR(255) NOT NULL,
+    cursor_name VARCHAR(64) NOT NULL,
+    cursor_value TEXT NOT NULL,
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_source_checkpoint_key UNIQUE (source_type, source_key, cursor_name)
+);
+
+CREATE INDEX ix_source_checkpoints_source_type ON source_checkpoints (source_type);
+CREATE INDEX ix_source_checkpoints_source_key ON source_checkpoints (source_key);

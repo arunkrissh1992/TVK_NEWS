@@ -18,11 +18,14 @@ from tnmi.contracts import (
 from tnmi.storage import (
     AIAnalysisRecord,
     RawItemRecord,
+    SourceCheckpointRecord,
     create_session_factory,
     get_ai_analysis,
+    get_source_checkpoint,
     init_db,
     save_ai_analysis,
     save_raw_item,
+    save_source_checkpoint,
 )
 
 
@@ -181,3 +184,45 @@ def test_postgresql_ddl_includes_json_server_defaults():
     assert "evidence_quotes_original JSONB DEFAULT '[]'" in ai_analysis_ddl
     assert "evidence_quotes_english JSONB DEFAULT '[]'" in ai_analysis_ddl
     assert "CONSTRAINT uq_ai_analysis_raw_model_prompt UNIQUE (raw_item_id, model_name, prompt_version)" in ai_analysis_ddl
+
+
+def test_save_source_checkpoint_creates_and_updates_cursor(tmp_path):
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'test.db'}")
+    init_db(session_factory)
+
+    with session_factory() as session:
+        first = save_source_checkpoint(
+            session,
+            source_type="x",
+            source_key="@ExampleTNNews",
+            cursor_name="since_id",
+            cursor_value="100",
+            metadata={"posts_seen": 2},
+        )
+        second = save_source_checkpoint(
+            session,
+            source_type="x",
+            source_key="@ExampleTNNews",
+            cursor_name="since_id",
+            cursor_value="200",
+            metadata={"posts_seen": 3},
+        )
+        found = get_source_checkpoint(
+            session,
+            source_type="x",
+            source_key="@ExampleTNNews",
+            cursor_name="since_id",
+        )
+        session.commit()
+
+    assert first.id == second.id
+    assert found is not None
+    assert found.cursor_value == "200"
+    assert found.metadata_json == {"posts_seen": 3}
+
+
+def test_postgresql_ddl_includes_source_checkpoint_uniqueness():
+    ddl = str(CreateTable(SourceCheckpointRecord.__table__).compile(dialect=postgresql.dialect()))
+
+    assert "source_checkpoints" in ddl
+    assert "CONSTRAINT uq_source_checkpoint_key UNIQUE (source_type, source_key, cursor_name)" in ddl

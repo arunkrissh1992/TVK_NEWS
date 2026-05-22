@@ -116,6 +116,26 @@ class ReviewDecisionRecord(Base):
     )
 
 
+class SourceCheckpointRecord(Base):
+    __tablename__ = "source_checkpoints"
+    __table_args__ = (
+        UniqueConstraint("source_type", "source_key", "cursor_name", name="uq_source_checkpoint_key"),
+    )
+
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    source_type: Mapped[str] = mapped_column(String(64), index=True)
+    source_key: Mapped[str] = mapped_column(String(255), index=True)
+    cursor_name: Mapped[str] = mapped_column(String(64))
+    cursor_value: Mapped[str] = mapped_column(Text)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, server_default=text("'{}'"))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+
+
 def create_session_factory(database_url: str) -> sessionmaker[Session]:
     engine = create_engine(database_url, future=True)
     if engine.dialect.name == "sqlite":
@@ -260,3 +280,53 @@ def get_latest_review_decision(session: Session, analysis_id: int) -> ReviewDeci
         .order_by(ReviewDecisionRecord.created_at.desc(), ReviewDecisionRecord.id.desc())
         .limit(1)
     )
+
+
+def get_source_checkpoint(
+    session: Session,
+    *,
+    source_type: str,
+    source_key: str,
+    cursor_name: str,
+) -> SourceCheckpointRecord | None:
+    return session.scalar(
+        select(SourceCheckpointRecord).where(
+            SourceCheckpointRecord.source_type == source_type,
+            SourceCheckpointRecord.source_key == source_key,
+            SourceCheckpointRecord.cursor_name == cursor_name,
+        )
+    )
+
+
+def save_source_checkpoint(
+    session: Session,
+    *,
+    source_type: str,
+    source_key: str,
+    cursor_name: str,
+    cursor_value: str,
+    metadata: dict[str, Any] | None = None,
+) -> SourceCheckpointRecord:
+    existing = get_source_checkpoint(
+        session,
+        source_type=source_type,
+        source_key=source_key,
+        cursor_name=cursor_name,
+    )
+    if existing:
+        existing.cursor_value = cursor_value
+        existing.metadata_json = metadata or {}
+        existing.updated_at = datetime.now(timezone.utc)
+        session.flush()
+        return existing
+
+    record = SourceCheckpointRecord(
+        source_type=source_type,
+        source_key=source_key,
+        cursor_name=cursor_name,
+        cursor_value=cursor_value,
+        metadata_json=metadata or {},
+    )
+    session.add(record)
+    session.flush()
+    return record
