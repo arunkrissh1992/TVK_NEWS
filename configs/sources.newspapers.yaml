@@ -6,7 +6,8 @@ newspapers:
     rss_urls:
       - https://www.hindutamil.in/rss
     sitemap_urls: []
-    section_urls: []
+    section_urls:
+      - https://www.hindutamil.in/
     legal_notes: Public RSS source; verify production access and terms before launch.
 
   - name: Dinamalar

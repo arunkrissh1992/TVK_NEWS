@@ -4,7 +4,13 @@ from sqlalchemy import func, select
 
 from tnmi.ai import MockAIAnalyzer
 from tnmi.contracts import NewspaperSource
-from tnmi.pipeline import DailyNewsPipeline, InMemoryNewsClient, RequestsNewsClient, normalize_source_url
+from tnmi.pipeline import (
+    DailyNewsPipeline,
+    InMemoryNewsClient,
+    RequestsNewsClient,
+    is_safe_resolved_article_url,
+    normalize_source_url,
+)
 from tnmi.storage import AIAnalysisRecord, RawItemRecord, create_session_factory, init_db
 
 
@@ -284,3 +290,12 @@ def test_requests_news_client_blocks_redirect_to_disallowed_article_host(monkeyp
         raise AssertionError("redirect to localhost should be blocked")
 
     assert calls == ["https://example.com/news"]
+
+
+def test_requests_news_client_blocks_hosts_resolving_to_private_ips(monkeypatch):
+    monkeypatch.setattr(
+        "tnmi.pipeline.socket.getaddrinfo",
+        lambda host, port: [(None, None, None, None, ("10.0.0.5", 0))],
+    )
+
+    assert is_safe_resolved_article_url("https://example.com/news") is False

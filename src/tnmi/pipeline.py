@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import socket
 from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
@@ -48,6 +49,8 @@ class RequestsNewsClient:
         with requests.Session() as session:
             for _ in range(10):
                 if allowed_hosts is not None and not is_allowed_article_url(current_url, allowed_hosts):
+                    raise ValueError("blocked article URL")
+                if not is_safe_resolved_article_url(current_url):
                     raise ValueError("blocked article URL")
                 response = session.get(
                     current_url,
@@ -103,6 +106,32 @@ def _is_blocked_ip_literal(hostname: str) -> bool:
     )
 
 
+def _hostname_resolves_to_blocked_ip(hostname: str) -> bool:
+    try:
+        results = socket.getaddrinfo(hostname, None)
+    except OSError:
+        return False
+
+    for result in results:
+        address = result[4][0]
+        try:
+            parsed = ipaddress.ip_address(address)
+        except ValueError:
+            continue
+        if any(
+            (
+                parsed.is_loopback,
+                parsed.is_private,
+                parsed.is_link_local,
+                parsed.is_multicast,
+                parsed.is_unspecified,
+                parsed.is_reserved,
+            )
+        ):
+            return True
+    return False
+
+
 def _is_local_hostname(hostname: str) -> bool:
     return hostname in _LOCAL_HOSTNAMES or hostname.endswith(".localhost")
 
@@ -133,6 +162,13 @@ def is_allowed_article_url(url: str, allowed_hosts: set[str]) -> bool:
     if _is_local_hostname(hostname) or _is_blocked_ip_literal(hostname):
         return False
     return _host_matches_allowed(hostname, allowed_hosts)
+
+
+def is_safe_resolved_article_url(url: str) -> bool:
+    hostname = _normalized_hostname(url)
+    if not hostname or _is_blocked_ip_literal(hostname):
+        return False
+    return not _hostname_resolves_to_blocked_ip(hostname)
 
 
 @dataclass(frozen=True)
