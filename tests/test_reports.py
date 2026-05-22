@@ -1,8 +1,10 @@
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 
-from tnmi.reports import render_daily_news_markdown, write_report
+from tnmi.reports import build_daily_report_data, render_daily_news_markdown, write_report
+from tnmi.storage import create_session_factory, init_db, save_ai_analysis, save_raw_item
+from tests.test_storage import make_analysis, make_item
 
 
 def test_render_daily_news_markdown_includes_stance_counts():
@@ -77,3 +79,47 @@ def test_render_daily_news_markdown_requires_top_item_fields():
                 }
             ],
         )
+
+
+def test_build_daily_report_data_uses_published_date_and_ingested_fallback(tmp_path):
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'test.db'}")
+    init_db(session_factory)
+
+    published_item = make_item().model_copy(
+        update={
+            "source_name": "Published Source",
+            "source_url": "https://example.com/published",
+            "title": "Published Item",
+            "published_at": datetime(2026, 5, 21, 8, 0, tzinfo=timezone.utc),
+        }
+    )
+    fallback_item = make_item().model_copy(
+        update={
+            "source_name": "Fallback Source",
+            "source_url": "https://example.com/fallback",
+            "title": "Fallback Item",
+            "published_at": None,
+        }
+    )
+    other_item = make_item().model_copy(
+        update={
+            "source_url": "https://example.com/other",
+            "published_at": datetime(2026, 5, 20, 8, 0, tzinfo=timezone.utc),
+        }
+    )
+
+    with session_factory() as session:
+        published_raw = save_raw_item(session, published_item)
+        fallback_raw = save_raw_item(session, fallback_item)
+        other_raw = save_raw_item(session, other_item)
+        fallback_raw.ingested_at = datetime(2026, 5, 21, 9, 0, tzinfo=timezone.utc)
+        save_ai_analysis(session, published_raw.id, make_analysis(), model_name="mock", prompt_version="v1")
+        save_ai_analysis(session, fallback_raw.id, make_analysis(), model_name="mock", prompt_version="v1")
+        save_ai_analysis(session, other_raw.id, make_analysis(), model_name="mock", prompt_version="v1")
+        session.commit()
+
+        report_data = build_daily_report_data(session, date(2026, 5, 21))
+
+    assert report_data["stance_counts"]["positive"] == 2
+    assert [item["title"] for item in report_data["top_items"]] == ["Published Item", "Fallback Item"]
+    assert report_data["top_items"][0]["url"] == "https://example.com/published"

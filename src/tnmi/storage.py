@@ -202,3 +202,19 @@ def save_ai_analysis(
         raise
 
     return record
+
+
+def get_ai_analysis(
+    session: Session,
+    raw_item_id: int,
+    *,
+    model_name: str,
+    prompt_version: str,
+) -> AIAnalysisRecord | None:
+    return session.scalar(
+        select(AIAnalysisRecord).where(
+            AIAnalysisRecord.raw_item_id == raw_item_id,
+            AIAnalysisRecord.model_name == model_name,
+            AIAnalysisRecord.prompt_version == prompt_version,
+        )
+    )

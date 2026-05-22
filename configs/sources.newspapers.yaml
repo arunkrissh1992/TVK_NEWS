@@ -12,19 +12,19 @@ newspapers:
   - name: Dinamalar
     language_hint: ta
     priority: 1
-    active: true
+    active: false
     rss_urls: []
     sitemap_urls: []
     section_urls:
       - https://www.dinamalar.com/
-    legal_notes: Public website source; configure approved RSS/sitemap if available.
+    legal_notes: Inactive for Milestone 1; pending approved RSS/sitemap configuration.
 
   - name: Dinamani
     language_hint: ta
     priority: 1
-    active: true
+    active: false
     rss_urls: []
     sitemap_urls: []
     section_urls:
       - https://www.dinamani.com/
-    legal_notes: Public website source; configure approved RSS/sitemap if available.
+    legal_notes: Inactive for Milestone 1; pending approved RSS/sitemap configuration.

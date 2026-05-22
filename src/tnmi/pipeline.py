@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import ipaddress
 from dataclasses import dataclass
 from typing import Protocol
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 import requests
 from sqlalchemy.orm import Session, sessionmaker
@@ -11,10 +12,11 @@ from tnmi.ai import AIAnalyzer, PROMPT_VERSION
 from tnmi.contracts import NewspaperSource, NormalizedItem, SourceType
 from tnmi.language import detect_language
 from tnmi.news import extract_article_text, parse_feed_entries
-from tnmi.storage import save_ai_analysis, save_raw_item
+from tnmi.storage import get_ai_analysis, save_ai_analysis, save_raw_item
 
 
 _TRACKING_QUERY_PARAMS = {"fbclid", "gclid"}
+_LOCAL_HOSTNAMES = {"localhost"}
 
 
 def normalize_source_url(url: str) -> str:
@@ -36,19 +38,31 @@ def normalize_source_url(url: str) -> str:
 
 
 class NewsClient(Protocol):
-    def fetch_text(self, url: str) -> str:
+    def fetch_text(self, url: str, *, allowed_hosts: set[str] | None = None) -> str:
         ...
 
 
 class RequestsNewsClient:
-    def fetch_text(self, url: str) -> str:
-        response = requests.get(
-            url,
-            timeout=30,
-            headers={"User-Agent": "tn-media-intelligence/0.1"},
-        )
-        response.raise_for_status()
-        return response.text
+    def fetch_text(self, url: str, *, allowed_hosts: set[str] | None = None) -> str:
+        current_url = url
+        with requests.Session() as session:
+            for _ in range(10):
+                if allowed_hosts is not None and not is_allowed_article_url(current_url, allowed_hosts):
+                    raise ValueError("blocked article URL")
+                response = session.get(
+                    current_url,
+                    timeout=30,
+                    headers={"User-Agent": "tn-media-intelligence/0.1"},
+                    allow_redirects=False,
+                )
+                if not response.is_redirect:
+                    response.raise_for_status()
+                    return response.text
+                location = response.headers.get("Location")
+                if not location:
+                    raise ValueError("redirect response missing Location header")
+                current_url = urljoin(current_url, location)
+            raise ValueError("too many redirects")
 
 
 class InMemoryNewsClient:
@@ -56,10 +70,69 @@ class InMemoryNewsClient:
         self.feeds = feeds
         self.articles = articles
 
-    def fetch_text(self, url: str) -> str:
+    def fetch_text(self, url: str, *, allowed_hosts: set[str] | None = None) -> str:
         if url in self.feeds:
             return self.feeds[url]
         return self.articles[url]
+
+
+def _normalized_hostname(url: str) -> str | None:
+    try:
+        hostname = urlsplit(url).hostname
+    except ValueError:
+        return None
+    if not hostname:
+        return None
+    return hostname.rstrip(".").lower()
+
+
+def _is_blocked_ip_literal(hostname: str) -> bool:
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        return False
+    return any(
+        (
+            address.is_loopback,
+            address.is_private,
+            address.is_link_local,
+            address.is_multicast,
+            address.is_unspecified,
+            address.is_reserved,
+        )
+    )
+
+
+def _is_local_hostname(hostname: str) -> bool:
+    return hostname in _LOCAL_HOSTNAMES or hostname.endswith(".localhost")
+
+
+def _host_matches_allowed(hostname: str, allowed_hosts: set[str]) -> bool:
+    return any(hostname == allowed or hostname.endswith(f".{allowed}") for allowed in allowed_hosts)
+
+
+def allowed_article_hosts(source: NewspaperSource) -> set[str]:
+    hosts: set[str] = set()
+    for url in [*source.rss_urls, *source.sitemap_urls, *source.section_urls]:
+        hostname = _normalized_hostname(str(url))
+        if hostname and not _is_local_hostname(hostname) and not _is_blocked_ip_literal(hostname):
+            hosts.add(hostname)
+    return hosts
+
+
+def is_allowed_article_url(url: str, allowed_hosts: set[str]) -> bool:
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return False
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return False
+    hostname = _normalized_hostname(url)
+    if not hostname:
+        return False
+    if _is_local_hostname(hostname) or _is_blocked_ip_literal(hostname):
+        return False
+    return _host_matches_allowed(hostname, allowed_hosts)
 
 
 @dataclass(frozen=True)
@@ -92,6 +165,7 @@ class DailyNewsPipeline:
             for source in sources:
                 if not source.active:
                     continue
+                source_allowed_hosts = allowed_article_hosts(source)
                 for rss_url in source.rss_urls:
                     try:
                         feed_xml = self.news_client.fetch_text(str(rss_url))
@@ -103,7 +177,9 @@ class DailyNewsPipeline:
                     for entry in entries:
                         items_seen += 1
                         try:
-                            html = self.news_client.fetch_text(entry.url)
+                            if not is_allowed_article_url(entry.url, source_allowed_hosts):
+                                raise ValueError("blocked article URL")
+                            html = self.news_client.fetch_text(entry.url, allowed_hosts=source_allowed_hosts)
                             normalized_url = normalize_source_url(entry.url)
                             article = extract_article_text(normalized_url, html)
                             with session.begin_nested():
@@ -125,6 +201,15 @@ class DailyNewsPipeline:
                                     },
                                 )
                                 raw = save_raw_item(session, item)
+                                existing_analysis = get_ai_analysis(
+                                    session,
+                                    raw.id,
+                                    model_name=self.analyzer.model_name,
+                                    prompt_version=PROMPT_VERSION,
+                                )
+                                if existing_analysis:
+                                    items_saved += 1
+                                    continue
                                 analysis = self.analyzer.analyze(item)
                                 save_ai_analysis(
                                     session,

@@ -40,3 +40,9 @@ UNRELATED_KEY=ignored
     settings = Settings(_env_file=env_file)
 
     assert settings.database_url == "sqlite:///./custom.db"
+
+
+def test_milestone_one_has_no_active_newspaper_without_rss_urls():
+    sources = load_newspaper_sources("configs/sources.newspapers.yaml")
+
+    assert [source.name for source in sources if source.active and not source.rss_urls] == []

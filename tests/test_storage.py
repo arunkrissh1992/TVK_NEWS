@@ -19,6 +19,7 @@ from tnmi.storage import (
     AIAnalysisRecord,
     RawItemRecord,
     create_session_factory,
+    get_ai_analysis,
     init_db,
     save_ai_analysis,
     save_raw_item,
@@ -112,6 +113,22 @@ def test_save_ai_analysis_is_idempotent_for_raw_model_and_prompt(tmp_path):
 
     assert first.id == second.id
     assert row_count == 1
+
+
+def test_get_ai_analysis_returns_existing_raw_model_prompt_row(tmp_path):
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'test.db'}")
+    init_db(session_factory)
+
+    with session_factory() as session:
+        raw = save_raw_item(session, make_item())
+        saved = save_ai_analysis(session, raw.id, make_analysis(), model_name="mock", prompt_version="v1")
+        found = get_ai_analysis(session, raw.id, model_name="mock", prompt_version="v1")
+        missing = get_ai_analysis(session, raw.id, model_name="other", prompt_version="v1")
+        session.commit()
+
+    assert found is not None
+    assert found.id == saved.id
+    assert missing is None
 
 
 def test_save_ai_analysis_rejects_nonexistent_raw_item(tmp_path):
