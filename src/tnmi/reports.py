@@ -2,6 +2,26 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+import re
+
+
+_MARKDOWN_CONTROL_CHARS = "\\*_[]()#<>|`"
+_REQUIRED_TOP_ITEM_KEYS = {"source_name", "title", "stance", "summary", "url"}
+
+
+def _normalize_inline_text(value: str) -> str:
+    normalized = re.sub(r"\s+", " ", value).strip()
+    return "".join(
+        f"\\{char}" if char in _MARKDOWN_CONTROL_CHARS else char
+        for char in normalized
+    )
+
+
+def _validate_top_item(item: dict[str, str], index: int) -> None:
+    missing_keys = sorted(_REQUIRED_TOP_ITEM_KEYS - item.keys())
+    if missing_keys:
+        missing = ", ".join(missing_keys)
+        raise ValueError(f"top item {index} is missing required keys: {missing}")
 
 
 def render_daily_news_markdown(
@@ -23,15 +43,16 @@ def render_daily_news_markdown(
         "## Top Items",
         "",
     ]
-    for item in top_items:
+    for index, item in enumerate(top_items):
+        _validate_top_item(item, index)
         lines.extend(
             [
-                f"### {item['title']}",
+                f"### {_normalize_inline_text(item['title'])}",
                 "",
-                f"- Source: {item['source_name']}",
-                f"- Stance: {item['stance']}",
-                f"- Summary: {item['summary']}",
-                f"- URL: {item['url']}",
+                f"- Source: {_normalize_inline_text(item['source_name'])}",
+                f"- Stance: {_normalize_inline_text(item['stance'])}",
+                f"- Summary: {_normalize_inline_text(item['summary'])}",
+                f"- URL: {_normalize_inline_text(item['url'])}",
                 "",
             ]
         )
@@ -39,7 +60,17 @@ def render_daily_news_markdown(
 
 
 def write_report(markdown: str, output_dir: Path, filename: str) -> Path:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    path = output_dir / filename
+    filename_path = Path(filename)
+    if filename_path.is_absolute() or filename_path.name != filename:
+        raise ValueError("unsafe filename: must be a plain filename")
+
+    resolved_output_dir = output_dir.resolve()
+    path = (resolved_output_dir / filename).resolve()
+    try:
+        path.relative_to(resolved_output_dir)
+    except ValueError as exc:
+        raise ValueError("unsafe filename: resolved path escapes output directory") from exc
+
+    resolved_output_dir.mkdir(parents=True, exist_ok=True)
     path.write_text(markdown, encoding="utf-8")
     return path
