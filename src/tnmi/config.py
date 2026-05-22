@@ -16,7 +16,11 @@ class Settings(BaseSettings):
     news_source_config: Path = Path("configs/sources.newspapers.yaml")
     report_output_dir: Path = Path("reports/generated")
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 def load_newspaper_sources(path: str | Path) -> list[NewspaperSource]:
