@@ -3,18 +3,40 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>TN Media Intelligence</title>
+    <title>Tamil Nadu Public Media Intelligence</title>
     <link rel="stylesheet" href="/static/dashboard.css">
   </head>
   <body>
-    <main class="shell">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">Confidential Operator Console</p>
-          <h1>TN Media Intelligence</h1>
+    <header class="site-header">
+      <div class="shell masthead">
+        <div class="brand-block">
+          <div class="brand-emblem" aria-hidden="true">TN</div>
+          <div>
+            <p class="eyebrow">Confidential Public Media Intelligence</p>
+            <h1>Tamil Nadu Public Media Intelligence</h1>
+            <p class="subtitle">Daily evidence review for newspapers, social media, video, OCR and transcripts</p>
+          </div>
         </div>
-        <div class="status-pill">Newspaper Review</div>
-      </header>
+        <div class="status-card">
+          <span>Daily Intelligence</span>
+          <strong>Newspaper Review</strong>
+        </div>
+      </div>
+      <nav class="nav-strip" aria-label="Dashboard sections">
+        <div class="shell nav-list">
+          <a href="/dashboard">Home</a>
+          <a href="/dashboard/summary">Summary API</a>
+          <a href="/review/queue">Review Queue</a>
+          <a href="/reports">Reports</a>
+        </div>
+      </nav>
+    </header>
+
+    <main class="shell">
+      <section class="notice-band">
+        <strong>Operator Console</strong>
+        <span>AI findings are evidence-backed working intelligence and require human review for sensitive claims.</span>
+      </section>
 
       <section class="metric-grid" aria-label="Dashboard summary">
         <article><span>Total Items</span><strong>{{ summary.total_items }}</strong></article>
@@ -25,7 +47,7 @@
         <article><span>Reviewed</span><strong>{{ summary.reviewed }}</strong></article>
       </section>
 
-      <section class="split">
+      <section class="split panel-row">
         <div>
           <h2>Stance</h2>
           <dl>
@@ -44,8 +66,11 @@
         </div>
       </section>
 
-      <section>
-        <h2>Pending Review</h2>
+      <section class="panel">
+        <div class="panel-heading">
+          <h2>Pending Review</h2>
+          <span>Sensitive or low-confidence items</span>
+        </div>
         <div class="queue">
           {% for item in queue %}
             <article class="queue-item">
@@ -65,8 +90,11 @@
         </div>
       </section>
 
-      <section>
-        <h2>Latest Live Newspaper Items</h2>
+      <section class="panel">
+        <div class="panel-heading">
+          <h2>Latest Live Newspaper Items</h2>
+          <span>RSS article evidence converted into AI-ready records</span>
+        </div>
         <div class="queue">
           {% for item in latest_items %}
             <article class="queue-item">

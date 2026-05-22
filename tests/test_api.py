@@ -198,7 +198,8 @@ def test_dashboard_html_renders_summary_and_review_queue(monkeypatch, tmp_path):
     response = client.get("/dashboard")
 
     assert response.status_code == 200
-    assert "TN Media Intelligence" in response.text
+    assert "Tamil Nadu Public Media Intelligence" in response.text
+    assert "Daily Intelligence" in response.text
     assert "Needs review." in response.text
     assert "Pending Review" in response.text
     assert "RAG Chunks" in response.text
