@@ -1,0 +1,101 @@
+# ---------------------------------------------------------------------------
+# Tamil Nadu YouTube channel registry — Phase D
+# ---------------------------------------------------------------------------
+# Each entry maps to a YouTubeChannelSource record in tnmi.contracts.
+# Ingestion (when wired): YouTube Data API discovers recent uploads per
+# channel, yt-dlp pulls the audio, faster-whisper transcribes (Tamil), and
+# the transcript flows through the same AIAnalysis pipeline as newspaper
+# articles — same stance, same Party/People/Why/Next-step briefing lines.
+#
+# `active: true`  — channel is polled by the YouTube ingestion job
+# `active: false` — registered for reference but not pulled (channel_id
+#                   needs operator verification first)
+#
+# Channel IDs format: "UCxxxxxxxxxxxxxxxxxx" — visible in channel page source.
+# The IDs below are PLACEHOLDERS until an operator verifies them via the
+# YouTube Data API (channels.list response).
+# ---------------------------------------------------------------------------
+
+channels:
+
+  # Tier 1 — Major Tamil TV news channels with high upload cadence
+  - name: Puthiya Thalaimurai TV
+    channel_id: UCqYpKqK9aA1qd1lpFmJJlPg
+    language_hint: ta
+    priority: 1
+    active: false
+    coverage_scope: statewide
+    legal_notes: Placeholder channel ID — verify via YouTube Data API before activating.
+
+  - name: Sun News Tamil
+    channel_id: UCB1HxJ3PNlZN8YOWaH4t3aA
+    language_hint: ta
+    priority: 1
+    active: false
+    coverage_scope: statewide
+    legal_notes: Placeholder channel ID — verify.
+
+  - name: Polimer News
+    channel_id: UC8MtUNJiwDtWB8VxjBoCB2A
+    language_hint: ta
+    priority: 1
+    active: false
+    coverage_scope: statewide
+    legal_notes: Placeholder channel ID — verify.
+
+  - name: Thanthi TV
+    channel_id: UCt8wXJj-XO_kPnSqHwgInIQ
+    language_hint: ta
+    priority: 1
+    active: false
+    coverage_scope: statewide
+    legal_notes: Placeholder channel ID — verify.
+
+  - name: News7 Tamil
+    channel_id: UCXIJ7c5cOQwHmGGehTxFE5g
+    language_hint: ta
+    priority: 2
+    active: false
+    coverage_scope: statewide
+    legal_notes: Placeholder channel ID — verify.
+
+  - name: Pudhuyugam TV
+    channel_id: UC7sLfL8RM6Yh3ftgIcQVw7w
+    language_hint: ta
+    priority: 2
+    active: false
+    coverage_scope: statewide
+    legal_notes: Placeholder channel ID — verify.
+
+  - name: News18 Tamil Nadu
+    channel_id: UCpQzHwggLpHxnHaJX1WnK7Q
+    language_hint: ta
+    priority: 2
+    active: false
+    coverage_scope: statewide
+    legal_notes: Placeholder channel ID — verify.
+
+  # Tier 2 — Long-form / explainer YouTube channels relevant to TN politics
+  - name: Vikatan TV
+    channel_id: UCNa0jhmRyDc9SkxxBKWnTrA
+    language_hint: ta
+    priority: 3
+    active: false
+    coverage_scope: statewide
+    legal_notes: Placeholder channel ID — verify.
+
+  - name: Behindwoods TV
+    channel_id: UCgC0qK6vHwz2hRJ6HoHQYHA
+    language_hint: ta
+    priority: 4
+    active: false
+    coverage_scope: statewide
+    legal_notes: Entertainment-skew, but covers political commentary; verify.
+
+  - name: News Tamil 24x7
+    channel_id: UCxxxxxxxxxxxxxxxxxxxxxx
+    language_hint: ta
+    priority: 4
+    active: false
+    coverage_scope: statewide
+    legal_notes: Placeholder channel ID — verify.

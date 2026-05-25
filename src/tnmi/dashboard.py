@@ -7,7 +7,14 @@ from typing import Any
 from sqlalchemy import Select, case, func, select
 from sqlalchemy.orm import Session
 
+from functools import lru_cache
+
 from tnmi.clusters import RecurringThemesReport, ThemeCluster, find_recurring_themes
+from tnmi.gdelt import (
+    GdeltCrossReference,
+    build_query_for_theme,
+    search_articles as gdelt_search_articles,
+)
 from tnmi.storage import (
     AIAnalysisRecord,
     ChunkEmbeddingRecord,
@@ -266,20 +273,63 @@ def list_recurring_themes(
     limit: int = 4,
     min_cluster_size: int = 2,
     similarity_threshold: float = 0.7,
+    cross_reference_global: bool = True,
 ) -> dict[str, Any]:
-    """Dashboard-ready payload for the Recurring Themes panel."""
+    """Dashboard-ready payload for the Recurring Themes panel.
+
+    When ``cross_reference_global`` is True we hit GDELT for each visible
+    theme to surface a global-signal badge. Calls are cached per process so
+    a dashboard reload doesn't re-fetch.
+    """
     report: RecurringThemesReport = find_recurring_themes(
         session,
         similarity_threshold=similarity_threshold,
         min_cluster_size=min_cluster_size,
         limit=limit,
     )
+
+    serialised: list[dict[str, Any]] = []
+    for cluster in report.themes:
+        payload = _serialise_theme(cluster)
+        if cross_reference_global and payload.get("sample_title"):
+            payload["global_signal"] = _gdelt_signal_for_title(payload["sample_title"])
+        else:
+            payload["global_signal"] = None
+        serialised.append(payload)
+
     return {
         "has_themes": report.has_themes,
         "diagnostic": report.diagnostic,
         "total_articles_indexed": report.total_articles_indexed,
-        "themes": [_serialise_theme(cluster) for cluster in report.themes],
+        "themes": serialised,
     }
+
+
+@lru_cache(maxsize=256)
+def _gdelt_signal_for_title(theme_title: str) -> dict[str, Any]:
+    """One GDELT lookup per unique theme title, cached for the process
+    lifetime. The dashboard renders several panels per request — we don't
+    want each one to repeat the same network call."""
+    try:
+        query = build_query_for_theme(theme_title)
+        cross: GdeltCrossReference = gdelt_search_articles(query, timespan="24h", max_records=8)
+        return {
+            "has_signal": cross.has_signal,
+            "article_count": cross.article_count,
+            "distinct_domains": cross.distinct_domains,
+            "top_match_title": cross.matches[0].title if cross.matches else None,
+            "top_match_url": cross.matches[0].url if cross.matches else None,
+            "query": query,
+        }
+    except Exception:  # noqa: BLE001 — never let GDELT break the dashboard
+        return {
+            "has_signal": False,
+            "article_count": 0,
+            "distinct_domains": 0,
+            "top_match_title": None,
+            "top_match_url": None,
+            "query": theme_title,
+        }
 
 
 def _serialise_theme(cluster: ThemeCluster) -> dict[str, Any]:
@@ -297,6 +347,10 @@ def _serialise_theme(cluster: ThemeCluster) -> dict[str, Any]:
         "sources": sorted({m.source_name for m in cluster.members}),
         "latest_published_at": cluster.latest_published_at,
         "member_ids": [m.raw_item_id for m in cluster.members],
+        # Phase E
+        "coordination_score": cluster.coordination_score,
+        "is_coordinated": cluster.is_coordinated,
+        "momentum": cluster.momentum(),
     }
 
 

@@ -16,8 +16,8 @@ from __future__ import annotations
 import math
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Iterable
+from datetime import datetime, timedelta, timezone
+from typing import Iterable, Literal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -99,6 +99,69 @@ class ThemeCluster:
         if not timestamps:
             return None
         return max(timestamps, key=_utc_sort_key)
+
+    # ---- Phase E: coordinated-coverage scoring ----
+
+    @property
+    def coordination_score(self) -> float:
+        """0.0–1.0 score indicating how 'coordinated' this theme looks.
+
+        Higher when many distinct sources publish about it close together in
+        time. The signal the chief wants is: 'are 4 newspapers all running
+        the same story in the same window — campaign-style coordination, or
+        organic break?'
+        """
+        if self.size < 2:
+            return 0.0
+        timestamps = sorted(
+            (_utc_sort_key(m.published_at) for m in self.members if m.published_at),
+            key=lambda dt: dt,
+        )
+        if len(timestamps) < 2:
+            # Time data missing — fall back to source diversity only.
+            return min(1.0, self.source_count / 5)
+        span_hours = (timestamps[-1] - timestamps[0]).total_seconds() / 3600.0
+        # Heuristic: 3+ distinct sources, all within 24h = strong signal.
+        diversity_factor = min(1.0, self.source_count / 4)
+        recency_factor = max(0.0, 1.0 - (span_hours / 72.0))  # >72h → 0
+        return round(diversity_factor * recency_factor, 3)
+
+    @property
+    def is_coordinated(self) -> bool:
+        """≥3 distinct sources publishing within 24h, by default."""
+        return self.coordination_score >= 0.6
+
+    # ---- Phase E: 7-day momentum ----
+
+    def momentum(self, *, today: datetime | None = None) -> Literal["rising", "steady", "fading", "flat"]:
+        """How is this narrative trending across the last 7 days?
+
+        We split the last 7 days into two halves (recent 3 vs. earlier 4)
+        and compare member-count per half. ``flat`` means there's not enough
+        time data to judge — the operator should ignore that case.
+        """
+        today = today or datetime.now(timezone.utc)
+        recent_cut = today - timedelta(days=3)
+        early_cut = today - timedelta(days=7)
+        recent = 0
+        early = 0
+        for member in self.members:
+            if not member.published_at:
+                continue
+            when = _utc_sort_key(member.published_at)
+            if when < early_cut:
+                continue
+            if when >= recent_cut:
+                recent += 1
+            else:
+                early += 1
+        if recent + early < 2:
+            return "flat"
+        if recent > early:
+            return "rising"
+        if recent < early:
+            return "fading"
+        return "steady"
 
 
 @dataclass(frozen=True)

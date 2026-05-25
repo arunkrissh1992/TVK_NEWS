@@ -73,6 +73,34 @@ class NewspaperSource(BaseModel):
     legal_notes: str = "Public newspaper source; respect robots, rate limits, and terms."
 
 
+class YouTubeChannelSource(BaseModel):
+    """A monitored YouTube channel — typically a Tamil-language news outlet.
+
+    The ingestion pipeline uses the YouTube Data API to discover the newest
+    videos for each channel, downloads the audio via yt-dlp, transcribes
+    with faster-whisper (Tamil), then runs the transcript through the same
+    AIAnalysis pipeline as newspaper articles.
+    """
+
+    name: str
+    channel_id: str = Field(min_length=1, max_length=64)
+    source_type: SourceType = SourceType.YOUTUBE
+    language_hint: str = "ta"
+    priority: int = Field(default=5, ge=1, le=10)
+    active: bool = True
+    coverage_scope: str = "statewide"
+    district_focus: str | None = None
+    legal_notes: str = "Public YouTube channel; transcripts produced under fair-use research."
+
+    @property
+    def source_name(self) -> str:
+        return self.name
+
+    @property
+    def channel_url(self) -> str:
+        return f"https://www.youtube.com/channel/{self.channel_id}"
+
+
 class XHandleSource(BaseModel):
     handle: str = Field(min_length=1, max_length=15, pattern=r"^[A-Za-z0-9_]{1,15}$")
     display_name: str | None = None

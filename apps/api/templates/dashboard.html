@@ -103,6 +103,26 @@
                     &middot; <strong>{{ theme.source_count }}</strong>&nbsp;{{ 'source' if theme.source_count == 1 else 'sources' }}
                   </span>
                 </header>
+                <div class="theme-signals" aria-label="Intelligence signals">
+                  {% if theme.is_coordinated %}
+                    <span class="theme-badge theme-badge--coordinated" title="Coordination score: {{ theme.coordination_score }}">
+                      <i class="fa-light fa-bullhorn" aria-hidden="true"></i> Coordinated
+                    </span>
+                  {% endif %}
+                  {% if theme.momentum == "rising" %}
+                    <span class="theme-badge theme-badge--rising">
+                      <i class="fa-light fa-arrow-trend-up" aria-hidden="true"></i> Rising
+                    </span>
+                  {% elif theme.momentum == "fading" %}
+                    <span class="theme-badge theme-badge--fading">
+                      <i class="fa-light fa-arrow-trend-down" aria-hidden="true"></i> Fading
+                    </span>
+                  {% elif theme.momentum == "steady" %}
+                    <span class="theme-badge theme-badge--steady">
+                      <i class="fa-light fa-arrow-right-long" aria-hidden="true"></i> Steady
+                    </span>
+                  {% endif %}
+                </div>
                 <h3 class="theme-title">{{ theme.sample_title }}</h3>
                 {% if theme.sample_summary %}
                   <p class="theme-summary">{{ theme.sample_summary }}</p>
@@ -111,6 +131,20 @@
                   <i class="fa-light fa-newspaper" aria-hidden="true"></i>
                   <span>{{ theme.sources[:3]|join(' &middot; ')|safe }}{% if theme.sources|length > 3 %} +{{ theme.sources|length - 3 }} more{% endif %}</span>
                 </footer>
+                {% if theme.global_signal and theme.global_signal.has_signal %}
+                  <div class="theme-global" title="Matching coverage from GDELT global news index">
+                    <i class="fa-light fa-globe" aria-hidden="true"></i>
+                    <span>
+                      <strong>{{ theme.global_signal.article_count }}</strong> global outlet{{ '' if theme.global_signal.article_count == 1 else 's' }}
+                      &middot; <strong>{{ theme.global_signal.distinct_domains }}</strong> domain{{ '' if theme.global_signal.distinct_domains == 1 else 's' }}
+                    </span>
+                    {% if theme.global_signal.top_match_url %}
+                      <a href="{{ theme.global_signal.top_match_url }}" rel="noreferrer" target="_blank" class="theme-global-link">
+                        Top match <i class="fa-light fa-arrow-up-right-from-square" aria-hidden="true"></i>
+                      </a>
+                    {% endif %}
+                  </div>
+                {% endif %}
               </article>
             {% endfor %}
           </div>
