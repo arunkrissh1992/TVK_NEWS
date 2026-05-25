@@ -1,32 +1,407 @@
+# ---------------------------------------------------------------------------
+# Tamil Nadu newspaper source registry — Phase B
+# ---------------------------------------------------------------------------
+# Each entry maps to a NewspaperSource record in tnmi.contracts.
+#
+# coverage_scope: "statewide" | "district" | "national-with-tn-bureau"
+# district_focus: only set when coverage_scope == "district" (one of TN's 38
+#                  districts, e.g. "Madurai", "Coimbatore")
+#
+# `active: true`  — pulled by every daily / Pull-Latest run
+# `active: false` — registered but NOT pulled until the RSS URL is verified
+#                   by an operator. Flip to true once confirmed.
+#
+# Operator workflow when activating a source:
+#   1. Hit the rss_urls in a browser; confirm it returns an RSS/Atom feed
+#   2. Confirm the publisher's robots.txt and terms permit machine reading
+#   3. Note any rate limits in legal_notes
+#   4. Flip active: true and rerun `python -m pipelines.run_daily_news`
+# ---------------------------------------------------------------------------
+
 newspapers:
+
+  # ====================================================================
+  # Tier 1 — Major Tamil dailies (statewide circulation)
+  # ====================================================================
+
   - name: The Hindu Tamil Thisai
     language_hint: ta
     priority: 1
     active: true
+    coverage_scope: statewide
     rss_urls:
       - https://www.hindutamil.in/feed
-    sitemap_urls: []
     section_urls:
       - https://www.hindutamil.in/
     legal_notes: Public RSS source; verify production access and terms before launch.
-
-  - name: Dinamalar
-    language_hint: ta
-    priority: 1
-    active: false
-    rss_urls: []
-    sitemap_urls: []
-    section_urls:
-      - https://www.dinamalar.com/
-    legal_notes: Inactive for Milestone 1; pending approved RSS/sitemap configuration.
 
   - name: Dinamani
     language_hint: ta
     priority: 1
     active: true
+    coverage_scope: statewide
     rss_urls:
       - https://www.dinamani.com/rss
-    sitemap_urls: []
     section_urls:
       - https://www.dinamani.com/
     legal_notes: Public RSS source; verify production access and terms before launch.
+
+  - name: Daily Thanthi
+    language_hint: ta
+    priority: 1
+    active: false
+    coverage_scope: statewide
+    rss_urls:
+      - https://www.dailythanthi.com/rss
+    section_urls:
+      - https://www.dailythanthi.com/
+    legal_notes: Pending RSS URL verification.
+
+  - name: Dinakaran
+    language_hint: ta
+    priority: 1
+    active: false
+    coverage_scope: statewide
+    rss_urls:
+      - https://www.dinakaran.com/rss
+    section_urls:
+      - https://www.dinakaran.com/
+    legal_notes: Pending RSS URL verification.
+
+  - name: Dinamalar
+    language_hint: ta
+    priority: 1
+    active: false
+    coverage_scope: statewide
+    rss_urls: []
+    section_urls:
+      - https://www.dinamalar.com/
+    legal_notes: Inactive — pending approved RSS/sitemap configuration.
+
+  - name: Maalai Malar
+    language_hint: ta
+    priority: 2
+    active: false
+    coverage_scope: statewide
+    rss_urls: []
+    section_urls:
+      - https://www.maalaimalar.com/
+    legal_notes: Pending RSS URL verification.
+
+  - name: Theekkathir
+    language_hint: ta
+    priority: 3
+    active: false
+    coverage_scope: statewide
+    rss_urls: []
+    section_urls:
+      - https://www.theekkathir.in/
+    legal_notes: Left-leaning daily; pending RSS configuration.
+
+  - name: Makkal Kural
+    language_hint: ta
+    priority: 3
+    active: false
+    coverage_scope: statewide
+    rss_urls: []
+    section_urls:
+      - https://www.makkalkural.net/
+    legal_notes: Pending RSS configuration.
+
+  # ====================================================================
+  # Tier 1 — English dailies covering TN
+  # ====================================================================
+
+  - name: The Hindu (Chennai)
+    language_hint: en
+    priority: 1
+    active: false
+    coverage_scope: national-with-tn-bureau
+    rss_urls:
+      - https://www.thehindu.com/news/cities/chennai/feeder/default.rss
+      - https://www.thehindu.com/news/national/tamil-nadu/feeder/default.rss
+    section_urls:
+      - https://www.thehindu.com/news/national/tamil-nadu/
+    legal_notes: Pending RSS verification.
+
+  - name: Times of India (Chennai)
+    language_hint: en
+    priority: 1
+    active: false
+    coverage_scope: national-with-tn-bureau
+    rss_urls:
+      - https://timesofindia.indiatimes.com/rssfeeds/-2128816011.cms
+    section_urls:
+      - https://timesofindia.indiatimes.com/city/chennai
+    legal_notes: Pending RSS verification.
+
+  - name: The New Indian Express (Chennai)
+    language_hint: en
+    priority: 2
+    active: false
+    coverage_scope: national-with-tn-bureau
+    rss_urls:
+      - https://www.newindianexpress.com/Cities/Chennai/rssfeed/?id=193&getXmlFeed=true
+    section_urls:
+      - https://www.newindianexpress.com/states/tamil-nadu
+    legal_notes: Pending RSS verification.
+
+  - name: Deccan Chronicle (Chennai)
+    language_hint: en
+    priority: 3
+    active: false
+    coverage_scope: national-with-tn-bureau
+    rss_urls: []
+    section_urls:
+      - https://www.deccanchronicle.com/nation/current-affairs
+    legal_notes: Pending RSS URL.
+
+  - name: The Federal
+    language_hint: en
+    priority: 2
+    active: false
+    coverage_scope: national-with-tn-bureau
+    rss_urls:
+      - https://thefederal.com/feed
+    section_urls:
+      - https://thefederal.com/category/states/tamil-nadu/
+    legal_notes: Pending RSS verification.
+
+  - name: News Minute
+    language_hint: en
+    priority: 2
+    active: false
+    coverage_scope: national-with-tn-bureau
+    rss_urls:
+      - https://www.thenewsminute.com/feed
+    section_urls:
+      - https://www.thenewsminute.com/tamilnadu
+    legal_notes: Pending RSS verification.
+
+  - name: News18 Tamil Nadu (English)
+    language_hint: en
+    priority: 3
+    active: false
+    coverage_scope: national-with-tn-bureau
+    rss_urls:
+      - https://www.news18.com/rss/india/tamil-nadu.xml
+    section_urls:
+      - https://www.news18.com/tamil-nadu/
+    legal_notes: Pending RSS verification.
+
+  # ====================================================================
+  # Tier 1 — Tamil TV / web news channels (high-velocity)
+  # ====================================================================
+
+  - name: Polimer News
+    language_hint: ta
+    priority: 2
+    active: false
+    coverage_scope: statewide
+    rss_urls:
+      - https://www.polimernews.com/rss
+    section_urls:
+      - https://www.polimernews.com/
+    legal_notes: Pending RSS verification.
+
+  - name: Puthiya Thalaimurai
+    language_hint: ta
+    priority: 2
+    active: false
+    coverage_scope: statewide
+    rss_urls:
+      - https://www.puthiyathalaimurai.com/rss
+    section_urls:
+      - https://www.puthiyathalaimurai.com/
+    legal_notes: Pending RSS verification.
+
+  - name: Sun News (Tamil)
+    language_hint: ta
+    priority: 2
+    active: false
+    coverage_scope: statewide
+    rss_urls: []
+    section_urls:
+      - https://www.sunnews.com/
+    legal_notes: Pending RSS configuration.
+
+  - name: Thanthi TV
+    language_hint: ta
+    priority: 2
+    active: false
+    coverage_scope: statewide
+    rss_urls: []
+    section_urls:
+      - https://www.thanthitv.com/
+    legal_notes: Pending RSS configuration.
+
+  - name: News7 Tamil
+    language_hint: ta
+    priority: 3
+    active: false
+    coverage_scope: statewide
+    rss_urls: []
+    section_urls:
+      - https://www.news7tamil.com/
+    legal_notes: Pending RSS configuration.
+
+  # ====================================================================
+  # Tier 2 — Tamil weeklies / magazines (slower cadence, deeper analysis)
+  # ====================================================================
+
+  - name: Vikatan
+    language_hint: ta
+    priority: 2
+    active: false
+    coverage_scope: statewide
+    rss_urls: []
+    section_urls:
+      - https://www.vikatan.com/news
+    legal_notes: Pending RSS configuration.
+
+  - name: Junior Vikatan
+    language_hint: ta
+    priority: 3
+    active: false
+    coverage_scope: statewide
+    rss_urls: []
+    section_urls:
+      - https://www.vikatan.com/junior-vikatan
+    legal_notes: Pending RSS configuration.
+
+  - name: Nakkheeran
+    language_hint: ta
+    priority: 4
+    active: false
+    coverage_scope: statewide
+    rss_urls: []
+    section_urls:
+      - https://www.nakkheeran.in/
+    legal_notes: Pending RSS configuration.
+
+  - name: Kumudam
+    language_hint: ta
+    priority: 4
+    active: false
+    coverage_scope: statewide
+    rss_urls: []
+    section_urls:
+      - https://www.kumudam.com/
+    legal_notes: Pending RSS configuration.
+
+  # ====================================================================
+  # Tier 3 — Major TN-district editions (each ties to a specific district)
+  # These usually share infrastructure with the parent paper but carry
+  # district-specific stories. We track them separately so the dashboard's
+  # "by district" filter has coverage.
+  # ====================================================================
+
+  - name: Hindu Tamil Thisai — Chennai
+    language_hint: ta
+    priority: 2
+    active: false
+    coverage_scope: district
+    district_focus: Chennai
+    rss_urls: []
+    section_urls:
+      - https://www.hindutamil.in/news/tamilnadu/chennai/
+    legal_notes: Section URL feed; pending RSS.
+
+  - name: Hindu Tamil Thisai — Coimbatore
+    language_hint: ta
+    priority: 2
+    active: false
+    coverage_scope: district
+    district_focus: Coimbatore
+    rss_urls: []
+    section_urls:
+      - https://www.hindutamil.in/news/tamilnadu/coimbatore/
+    legal_notes: Section URL feed; pending RSS.
+
+  - name: Hindu Tamil Thisai — Madurai
+    language_hint: ta
+    priority: 2
+    active: false
+    coverage_scope: district
+    district_focus: Madurai
+    rss_urls: []
+    section_urls:
+      - https://www.hindutamil.in/news/tamilnadu/madurai/
+    legal_notes: Section URL feed; pending RSS.
+
+  - name: Hindu Tamil Thisai — Tiruchirappalli
+    language_hint: ta
+    priority: 2
+    active: false
+    coverage_scope: district
+    district_focus: Tiruchirappalli
+    rss_urls: []
+    section_urls:
+      - https://www.hindutamil.in/news/tamilnadu/tiruchirappalli/
+    legal_notes: Section URL feed; pending RSS.
+
+  - name: Hindu Tamil Thisai — Salem
+    language_hint: ta
+    priority: 2
+    active: false
+    coverage_scope: district
+    district_focus: Salem
+    rss_urls: []
+    section_urls:
+      - https://www.hindutamil.in/news/tamilnadu/salem/
+    legal_notes: Section URL feed; pending RSS.
+
+  - name: Hindu Tamil Thisai — Tirunelveli
+    language_hint: ta
+    priority: 2
+    active: false
+    coverage_scope: district
+    district_focus: Tirunelveli
+    rss_urls: []
+    section_urls:
+      - https://www.hindutamil.in/news/tamilnadu/tirunelveli/
+    legal_notes: Section URL feed; pending RSS.
+
+  - name: Hindu Tamil Thisai — Vellore
+    language_hint: ta
+    priority: 2
+    active: false
+    coverage_scope: district
+    district_focus: Vellore
+    rss_urls: []
+    section_urls:
+      - https://www.hindutamil.in/news/tamilnadu/vellore/
+    legal_notes: Section URL feed; pending RSS.
+
+  - name: Hindu Tamil Thisai — Erode
+    language_hint: ta
+    priority: 2
+    active: false
+    coverage_scope: district
+    district_focus: Erode
+    rss_urls: []
+    section_urls:
+      - https://www.hindutamil.in/news/tamilnadu/erode/
+    legal_notes: Section URL feed; pending RSS.
+
+  - name: Hindu Tamil Thisai — Thoothukudi
+    language_hint: ta
+    priority: 2
+    active: false
+    coverage_scope: district
+    district_focus: Thoothukudi
+    rss_urls: []
+    section_urls:
+      - https://www.hindutamil.in/news/tamilnadu/thoothukudi/
+    legal_notes: Section URL feed; pending RSS.
+
+  - name: Hindu Tamil Thisai — Kanyakumari
+    language_hint: ta
+    priority: 2
+    active: false
+    coverage_scope: district
+    district_focus: Kanyakumari
+    rss_urls: []
+    section_urls:
+      - https://www.hindutamil.in/news/tamilnadu/kanyakumari/
+    legal_notes: Section URL feed; pending RSS.

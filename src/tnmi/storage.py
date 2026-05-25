@@ -85,6 +85,10 @@ class AIAnalysisRecord(Base):
     severity: Mapped[str] = mapped_column(String(64))
     summary_original: Mapped[str] = mapped_column(Text)
     summary_english: Mapped[str] = mapped_column(Text)
+    party_action: Mapped[str] = mapped_column(Text, default="", server_default="")
+    people_impact: Mapped[str] = mapped_column(Text, default="", server_default="")
+    root_cause: Mapped[str] = mapped_column(Text, default="", server_default="")
+    recommended_step: Mapped[str] = mapped_column(Text, default="", server_default="")
     positive_points: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list, server_default=text("'[]'"))
     negative_points: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list, server_default=text("'[]'"))
     evidence_quotes_original: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list, server_default=text("'[]'"))
@@ -188,7 +192,39 @@ def create_session_factory(database_url: str) -> sessionmaker[Session]:
 
 
 def init_db(session_factory: sessionmaker[Session]) -> None:
-    Base.metadata.create_all(session_factory.kw["bind"])
+    engine = session_factory.kw["bind"]
+    Base.metadata.create_all(engine)
+    _apply_lightweight_migrations(engine)
+
+
+def _apply_lightweight_migrations(engine: Any) -> None:
+    # Forward-only column additions for tables that already exist in older
+    # SQLite demo databases. Adding nullable columns with defaults is safe.
+    expected_columns = {
+        "ai_analysis": (
+            ("party_action", "TEXT NOT NULL DEFAULT ''"),
+            ("people_impact", "TEXT NOT NULL DEFAULT ''"),
+            ("root_cause", "TEXT NOT NULL DEFAULT ''"),
+            ("recommended_step", "TEXT NOT NULL DEFAULT ''"),
+        ),
+    }
+    with engine.begin() as connection:
+        for table_name, columns in expected_columns.items():
+            existing_rows = connection.execute(text(f"PRAGMA table_info('{table_name}')")).all() \
+                if engine.dialect.name == "sqlite" else []
+            existing_names = {row[1] for row in existing_rows} if engine.dialect.name == "sqlite" else set()
+            for column_name, column_ddl in columns:
+                if engine.dialect.name == "sqlite":
+                    if column_name in existing_names:
+                        continue
+                    connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_ddl}"))
+                else:
+                    connection.execute(
+                        text(
+                            f"ALTER TABLE {table_name} "
+                            f"ADD COLUMN IF NOT EXISTS {column_name} {column_ddl}"
+                        )
+                    )
 
 
 def compute_content_hash(item: NormalizedItem) -> str:
@@ -375,6 +411,10 @@ def save_ai_analysis(
         severity=analysis.severity.value,
         summary_original=analysis.summary_original,
         summary_english=analysis.summary_english,
+        party_action=analysis.party_action,
+        people_impact=analysis.people_impact,
+        root_cause=analysis.root_cause,
+        recommended_step=analysis.recommended_step,
         positive_points=analysis.positive_points,
         negative_points=analysis.negative_points,
         evidence_quotes_original=analysis.evidence_quotes_original,

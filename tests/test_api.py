@@ -200,11 +200,15 @@ def test_dashboard_html_renders_summary_and_review_queue(monkeypatch, tmp_path):
     assert response.status_code == 200
     assert "TVK Public Media Briefing" in response.text
     assert "Confidential Daily Briefing" in response.text
-    assert "What is being said" in response.text
+    assert 'data-filter="all"' in response.text
+    assert 'data-filter="positive"' in response.text
+    assert 'data-filter="negative"' in response.text
+    assert 'data-filter="mixed"' in response.text
+    assert 'data-filter="people"' in response.text
     assert "Positive and Negative Portrayal With Evidence" in response.text
     assert "People Issues" in response.text
     assert "Needs review." in response.text
-    assert "Evidence / ஆதாரம்" in response.text
+    assert "Evidence &middot;" in response.text
     assert "OpenAI Live" not in response.text
     assert "RAG Chunks" not in response.text
 

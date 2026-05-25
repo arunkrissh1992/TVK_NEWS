@@ -3,41 +3,66 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Operator Settings - Tamil Nadu Public Media Intelligence</title>
-    <link rel="stylesheet" href="/static/dashboard.css">
-    <script src="/static/dashboard.js" defer></script>
+    <title>Operator Settings &middot; TVK Public Media Briefing</title>
+    <meta name="theme-color" content="#175fd3">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Serif+Tamil:wght@400;500;600;700&family=Noto+Sans+Tamil:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/dashboard.css?v={{ static_version }}">
+    <script src="https://kit.fontawesome.com/f27c6614a0.js" crossorigin="anonymous"></script>
+    <script src="/static/dashboard.js?v={{ static_version }}" defer></script>
   </head>
   <body class="dashboard-page">
+
     <header class="site-header">
-      <div class="shell masthead">
-        <div class="brand-block">
-          <div class="brand-emblem" aria-hidden="true">TN</div>
-          <div>
-            <p class="eyebrow">Confidential Public Media Intelligence</p>
-            <h1>Operator Settings</h1>
-            <p class="subtitle">Runtime configuration status for official demo and production readiness</p>
-          </div>
-        </div>
-        <div class="status-card">
-          <span>Secrets</span>
-          <strong>Hidden</strong>
+      <div class="topline">
+        <div class="shell topline-row">
+          <span class="topline-left">
+            <span class="dot-live" aria-hidden="true"></span>
+            <span>Confidential Public Media Intelligence</span>
+          </span>
+          <span class="topline-right">
+            <a href="/dashboard">Back to briefing</a>
+          </span>
         </div>
       </div>
+
+      <div class="shell masthead">
+        <div class="masthead-side masthead-left">
+          <span class="edition-label">Console</span>
+          <span class="edition-value">Operator</span>
+        </div>
+        <div class="masthead-center">
+          <p class="kicker-tiny">TVK &nbsp;&middot;&nbsp; Public Media Intelligence</p>
+          <h1>Operator Settings</h1>
+          <p class="masthead-rule" aria-hidden="true">
+            <span></span>
+            <em>Runtime configuration status</em>
+            <span></span>
+          </p>
+          <p class="subtitle">Secrets are loaded from environment variables and never rendered on this page.</p>
+        </div>
+        <div class="masthead-side masthead-right">
+          <span class="edition-label">Secrets</span>
+          <span class="edition-value">Hidden</span>
+        </div>
+      </div>
+
       <nav class="nav-strip" aria-label="Dashboard sections">
         <div class="shell nav-list">
-          <a href="/dashboard">Home</a>
-          <a href="/dashboard/summary">Summary API</a>
-          <a href="/review/queue">Review Queue</a>
-          <a href="/reports">Reports</a>
-          <a href="/settings">Settings</a>
+          <a href="/dashboard" class="nav-link"><span class="nav-label">Briefing</span></a>
+          <a href="/dashboard/summary" class="nav-link"><span class="nav-label">Summary API</span></a>
+          <a href="/review/queue" class="nav-link"><span class="nav-label">Review Queue</span></a>
+          <a href="/reports" class="nav-link"><span class="nav-label">Reports</span></a>
+          <a href="/settings" class="nav-link is-current"><span class="nav-label">Settings</span></a>
         </div>
       </nav>
     </header>
 
-    <main class="shell">
+    <main class="shell main-shell">
       <section class="notice-band">
         <strong>Secure Settings</strong>
-        <span>API keys are loaded from environment variables or a local git-ignored `.env` file and are never rendered on this page.</span>
+        <span>API keys are loaded from environment variables or a local git-ignored `.env` file and are never rendered on this page. The keys are masked as <strong>Configured and hidden</strong>.</span>
       </section>
 
       <section class="settings-grid" aria-label="Runtime settings">
@@ -68,5 +93,17 @@
         </article>
       </section>
     </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-row">
+        <p class="footer-brand">
+          <strong>TVK</strong>
+          <span>Tamilaga Vettri Kazhagam &middot; Public Media Briefing</span>
+        </p>
+        <p class="footer-meta">
+          Confidential &middot; For internal use only
+        </p>
+      </div>
+    </footer>
   </body>
 </html>

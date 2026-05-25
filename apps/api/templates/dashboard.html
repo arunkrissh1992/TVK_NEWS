@@ -4,102 +4,226 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>TVK Public Media Briefing</title>
-    <link rel="stylesheet" href="/static/dashboard.css">
-    <script src="/static/dashboard.js" defer></script>
+    <meta name="description" content="Confidential daily briefing on newspaper portrayal of Tamilaga Vettri Kazhagam, public representatives and people's issues.">
+    <meta name="theme-color" content="#175fd3">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Serif+Tamil:wght@400;500;600;700&family=Noto+Sans+Tamil:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/dashboard.css?v={{ static_version }}">
+    <script src="https://kit.fontawesome.com/f27c6614a0.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer></script>
+    <script src="/static/dashboard.js?v={{ static_version }}" defer></script>
   </head>
   <body class="dashboard-page official-briefing-page">
+
+    <a class="skip-link" href="#overview">Skip to briefing</a>
+
     <header class="site-header">
-      <div class="shell masthead">
-        <div class="brand-block">
-          <div class="brand-emblem" aria-hidden="true">TVK</div>
-          <div>
-            <p class="eyebrow">Confidential Daily Briefing</p>
-            <h1>TVK Public Media Briefing</h1>
-            <p class="subtitle">Newspaper portrayal of TVK, public representatives and people’s issues</p>
-          </div>
-        </div>
-        <div class="status-card">
-          <span>Pilot Coverage</span>
-          <strong>{{ summary.source_count }} newspapers</strong>
+      <div class="topline" role="contentinfo">
+        <div class="shell topline-row">
+          <span class="topline-left">
+            <span class="dot-live" aria-hidden="true"></span>
+            <span>Confidential Daily Briefing</span>
+          </span>
+          <span class="topline-right">
+            <button type="button" class="topline-date" id="topline-date-jump" title="Pick a specific day">
+              <i class="fa-light fa-calendar" aria-hidden="true"></i>&nbsp;{{ summary.latest_ingested_at.strftime('%A, %d %B %Y') if summary.latest_ingested_at else 'Awaiting first ingest' }}
+            </button>
+            <span aria-hidden="true" class="topline-bullet">&middot;</span>
+            <button type="button" class="pull-latest" id="pull-latest-btn" title="Fetch the latest newspaper articles">
+              <i class="fa-light fa-arrows-rotate" aria-hidden="true"></i>
+              <span class="pull-latest-label">Pull Latest</span>
+            </button>
+            <span aria-hidden="true" class="topline-bullet">&middot;</span>
+            <a href="/settings"><i class="fa-light fa-gear" aria-hidden="true"></i>&nbsp;Operator Settings</a>
+          </span>
         </div>
       </div>
+
+      <div class="shell masthead">
+        <div class="masthead-side masthead-left" aria-hidden="true">
+          <span class="edition-label">Edition</span>
+          <span class="edition-value">No. {{ '%03d' % (summary.total_items if summary.total_items else 1) }}</span>
+        </div>
+
+        <div class="masthead-center">
+          <p class="kicker-tiny">Tamilaga Vettri Kazhagam</p>
+          <h1>TVK Public Media Briefing</h1>
+          <p class="masthead-rule" aria-hidden="true">
+            <span></span>
+            <em>Public Media Intelligence</em>
+            <span></span>
+          </p>
+          <p class="subtitle">Newspaper portrayal of TVK, public representatives and people&rsquo;s issues, prepared daily for the office of the party leadership.</p>
+        </div>
+
+        <div class="masthead-side masthead-right">
+          <span class="edition-label">For the office of</span>
+          <span class="edition-value">Party Leadership</span>
+        </div>
+      </div>
+
       <nav class="nav-strip" aria-label="Briefing sections">
         <div class="shell nav-list">
-          <a href="#overview">Overview</a>
-          <a href="#narratives">Narratives</a>
-          <a href="#people">People Issues</a>
-          <a href="#evidence">Evidence</a>
+          <a href="#overview" class="nav-link" data-nav-target="overview"><i class="fa-light fa-gauge-high" aria-hidden="true"></i><span class="nav-label">Overview</span></a>
+          <a href="#narratives" class="nav-link" data-nav-target="narratives"><i class="fa-light fa-newspaper" aria-hidden="true"></i><span class="nav-label">Narratives</span></a>
+          <a href="#people" class="nav-link" data-nav-target="people"><i class="fa-light fa-people-group" aria-hidden="true"></i><span class="nav-label">People Issues</span></a>
+          <a href="#trends" class="nav-link" data-nav-target="trends"><i class="fa-light fa-chart-line" aria-hidden="true"></i><span class="nav-label">Trends</span></a>
+          <a href="#evidence" class="nav-link" data-nav-target="evidence"><i class="fa-light fa-chart-column" aria-hidden="true"></i><span class="nav-label">Source Mix</span></a>
         </div>
       </nav>
     </header>
 
-    <main class="shell">
-      <section id="overview" class="briefing-hero">
-        <div class="briefing-copy">
-          <p class="section-kicker">Today’s Newspaper Reading</p>
-          <h2>What is being said, why it matters, and the source evidence behind it.</h2>
-          <p>
-            This view is prepared for officials. It separates positive coverage, negative coverage,
-            mixed signals and people’s problems, with Tamil and English summaries wherever analysis is available.
-          </p>
-        </div>
-        <div class="briefing-snapshot" aria-label="Briefing snapshot">
-          <span>{{ summary.total_items }}</span>
-          <strong>articles reviewed</strong>
-          <small>{{ summary.source_count }} newspaper sources in pilot</small>
-        </div>
-      </section>
+    <main class="shell main-shell">
 
-      <section class="briefing-kpis" aria-label="Portrayal summary">
-        <article class="briefing-kpi positive">
-          <span>Positive / நேர்மறை</span>
-          <strong>{{ summary.positive_count }}</strong>
-          <small>supportive or beneficial portrayal</small>
-        </article>
-        <article class="briefing-kpi negative">
-          <span>Negative / எதிர்மறை</span>
-          <strong>{{ summary.negative_count }}</strong>
-          <small>critical coverage or allegations</small>
-        </article>
-        <article class="briefing-kpi mixed">
-          <span>Mixed / கலப்பு</span>
-          <strong>{{ summary.mixed_count }}</strong>
-          <small>both concern and appreciation</small>
-        </article>
-        <article class="briefing-kpi people">
-          <span>People Issues / மக்கள் பிரச்சினைகள்</span>
-          <strong>{{ summary.people_issue_count }}</strong>
-          <small>items needing attention</small>
-        </article>
-      </section>
-
-      <section id="narratives" class="briefing-section">
-        <div class="section-heading">
-          <div>
-            <p class="section-kicker">Narrative Cards</p>
-            <h2>Positive and Negative Portrayal With Evidence</h2>
+      {% if themes.has_themes %}
+        <section class="themes-panel" aria-label="Recurring themes">
+          <header class="themes-heading">
+            <div>
+              <p class="rubric-kicker"><i class="fa-light fa-sparkles" aria-hidden="true"></i>&nbsp;What&rsquo;s Spreading</p>
+              <h2>The same story, told by more than one newspaper</h2>
+              <p class="rubric-lede">When multiple papers carry the same story today, we group them into one theme below. Click a theme to see all the articles in it.</p>
+            </div>
+          </header>
+          <div class="themes-grid">
+            {% for theme in themes.themes %}
+              <article
+                class="theme-card theme-card--{{ theme.portrayal_kind }}"
+                data-theme-id="{{ theme.representative_id }}"
+                data-theme-members="{{ theme.member_ids|join(',') }}"
+                role="button"
+                tabindex="0"
+                aria-pressed="false"
+                aria-label="Filter narrative cards to this theme"
+              >
+                <header class="theme-card-head">
+                  <span class="theme-stance">{{ theme.stance_label.split(' / ')[0] }}</span>
+                  <span class="theme-counts">
+                    <strong>{{ theme.size }}</strong>&nbsp;articles
+                    &middot; <strong>{{ theme.source_count }}</strong>&nbsp;{{ 'source' if theme.source_count == 1 else 'sources' }}
+                  </span>
+                </header>
+                <h3 class="theme-title">{{ theme.sample_title }}</h3>
+                {% if theme.sample_summary %}
+                  <p class="theme-summary">{{ theme.sample_summary }}</p>
+                {% endif %}
+                <footer class="theme-sources">
+                  <i class="fa-light fa-newspaper" aria-hidden="true"></i>
+                  <span>{{ theme.sources[:3]|join(' &middot; ')|safe }}{% if theme.sources|length > 3 %} +{{ theme.sources|length - 3 }} more{% endif %}</span>
+                </footer>
+              </article>
+            {% endfor %}
           </div>
-          <span id="visible-evidence-count">{{ latest_items|length }} evidence records visible</span>
-        </div>
+        </section>
+      {% elif themes.diagnostic %}
+        <section class="themes-panel themes-panel--empty" aria-label="Recurring themes empty state">
+          <p class="themes-empty">
+            <i class="fa-light fa-circle-info" aria-hidden="true"></i>
+            <span>{{ themes.diagnostic }}</span>
+          </p>
+        </section>
+      {% endif %}
 
-        <div class="evidence-toolbar official-toolbar" aria-label="Evidence filters">
-          <label>
-            <span>Search</span>
-            <input id="evidence-search" type="search" placeholder="Search topic, source, stance or summary">
+      <section id="overview" class="filter-deck" aria-label="Filter coverage by portrayal" role="tablist">
+        <button type="button" class="fcard fcard--all is-active" data-filter="all" role="tab" aria-selected="true">
+          <span class="fcard-icon" aria-hidden="true"><i class="fa-light fa-newspaper"></i></span>
+          <span class="fcard-label">All Coverage</span>
+          <span class="fcard-number" data-counter="{{ summary.total_items }}">{{ summary.total_items }}</span>
+          <span class="fcard-meta">Articles in pilot</span>
+        </button>
+        <button type="button" class="fcard fcard--positive" data-filter="positive" role="tab" aria-selected="false">
+          <span class="fcard-icon" aria-hidden="true"><i class="fa-light fa-thumbs-up"></i></span>
+          <span class="fcard-label">Positive</span>
+          <span class="fcard-number" data-counter="{{ summary.positive_count }}">{{ summary.positive_count }}</span>
+          <span class="fcard-meta">Supportive portrayal</span>
+        </button>
+        <button type="button" class="fcard fcard--negative" data-filter="negative" role="tab" aria-selected="false">
+          <span class="fcard-icon" aria-hidden="true"><i class="fa-light fa-thumbs-down"></i></span>
+          <span class="fcard-label">Negative</span>
+          <span class="fcard-number" data-counter="{{ summary.negative_count }}">{{ summary.negative_count }}</span>
+          <span class="fcard-meta">Critical coverage</span>
+        </button>
+        <button type="button" class="fcard fcard--mixed" data-filter="mixed" role="tab" aria-selected="false">
+          <span class="fcard-icon" aria-hidden="true"><i class="fa-light fa-circle-half-stroke"></i></span>
+          <span class="fcard-label">Mixed Signals</span>
+          <span class="fcard-number" data-counter="{{ summary.mixed_count }}">{{ summary.mixed_count }}</span>
+          <span class="fcard-meta">Concern with appreciation</span>
+        </button>
+        <button type="button" class="fcard fcard--people" data-filter="people" role="tab" aria-selected="false">
+          <span class="fcard-icon" aria-hidden="true"><i class="fa-light fa-users"></i></span>
+          <span class="fcard-label">People Issues</span>
+          <span class="fcard-number" data-counter="{{ summary.people_issue_count }}">{{ summary.people_issue_count }}</span>
+          <span class="fcard-meta">Needs attention</span>
+        </button>
+      </section>
+
+      <section id="narratives" class="narrative-section">
+        <header class="rubric">
+          <div class="rubric-text">
+            <p class="rubric-kicker">Narrative Cards</p>
+            <h2>Positive and Negative Portrayal With Evidence</h2>
+            <p class="rubric-lede">Each story below is grounded in a verifiable newspaper source. The English analysis is shown alongside the original Tamil quotation, preserved as evidence.</p>
+          </div>
+          <div class="rubric-meta">
+            <div class="view-toggle" role="tablist" aria-label="View mode">
+              <button type="button" class="view-toggle-btn is-active" data-view="cards" role="tab" aria-selected="true" title="Card view">
+                <i class="fa-light fa-grid-2" aria-hidden="true"></i>
+                <span>Cards</span>
+              </button>
+              <button type="button" class="view-toggle-btn" data-view="table" role="tab" aria-selected="false" title="Table view">
+                <i class="fa-light fa-table-list" aria-hidden="true"></i>
+                <span>Table</span>
+              </button>
+            </div>
+            <span id="visible-evidence-count">{{ latest_items|length }} evidence records</span>
+          </div>
+        </header>
+
+        <div class="filter-bar" aria-label="Evidence filters">
+          <label class="filter-field filter-field--search">
+            <span class="visually-hidden">Search</span>
+            <svg class="filter-icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="6.25" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m14 14 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <input id="evidence-search" type="search" placeholder="Search title, source, stance, summary, evidence quote, department, district&hellip;" aria-label="Search">
           </label>
-          <label>
-            <span>Portrayal</span>
-            <select id="stance-filter">
-              <option value="">All</option>
-              <option value="positive">Positive</option>
-              <option value="negative">Negative</option>
+          <label class="filter-field">
+            <span class="visually-hidden">Portrayal</span>
+            <select id="stance-filter" aria-label="Filter by portrayal">
+              <option value="">All portrayals</option>
+              <option value="positive">Positive only</option>
+              <option value="negative">Negative only</option>
               <option value="mixed">Mixed</option>
               <option value="neutral">Neutral</option>
             </select>
           </label>
-          <label>
-            <span>Newspaper</span>
-            <select id="source-filter">
+          <label class="filter-field filter-field--date">
+            <span class="visually-hidden">Date range</span>
+            <select id="date-filter" aria-label="Filter by date range">
+              <option value="">All time</option>
+              <option value="1">Last 24 hours</option>
+              <option value="7">Last 7 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="90">Last 90 days</option>
+            </select>
+            <input
+              id="specific-date-filter"
+              type="date"
+              aria-label="Filter by specific day"
+              title="Pick a specific day"
+            >
+            <button
+              type="button"
+              class="filter-field-clear"
+              id="specific-date-clear"
+              aria-label="Clear day filter"
+              title="Clear day filter"
+              hidden
+            >
+              <i class="fa-light fa-xmark" aria-hidden="true"></i>
+            </button>
+          </label>
+          <label class="filter-field">
+            <span class="visually-hidden">Newspaper</span>
+            <select id="source-filter" aria-label="Filter by newspaper">
               <option value="">All newspapers</option>
             </select>
           </label>
@@ -110,100 +234,367 @@
             <article
               class="narrative-card {{ item.portrayal_kind }}"
               data-role="latest-record"
+              data-raw-id="{{ item.raw_item_id }}"
+              data-analysis-id="{{ item.analysis_id }}"
               data-stance="{{ item.stance }}"
               data-source="{{ item.source_name }}"
+              data-needs-review="{{ 'true' if item.needs_human_review else 'false' }}"
+              data-published-at="{{ (item.published_at or item.ingested_at).isoformat() if (item.published_at or item.ingested_at) else '' }}"
+              data-department="{{ item.department }}"
+              data-district="{{ item.district }}"
             >
-              <div class="topic-illustration {{ item.portrayal_kind }}" aria-hidden="true">
-                <span>{{ loop.index }}</span>
-              </div>
-              <div class="narrative-content">
-                <div class="narrative-meta">
-                  <span>{{ item.source_name }}</span>
-                  <strong>{{ item.stance_label }}</strong>
-                </div>
-                <h3>{{ item.title or "Untitled item" }}</h3>
-                <div class="bilingual-summary">
-                  <p><span>English</span>{{ item.summary_english or item.summary }}</p>
-                  <p><span>தமிழ்</span>{{ item.summary_original or item.summary }}</p>
-                </div>
-                <div class="evidence-box">
-                  <span>Evidence / ஆதாரம்</span>
+              <header class="card-byline">
+                <span class="byline-source">{{ item.source_name }}</span>
+                <span class="byline-sep" aria-hidden="true">&middot;</span>
+                <span class="byline-stance">{{ item.stance_label.split(' / ')[0] }}</span>
+              </header>
+
+              <h3 class="card-headline">{{ item.title or "Untitled item" }}</h3>
+
+              <p class="card-summary card-summary--en">{{ item.summary_english or item.summary }}</p>
+
+              {% if item.party_action or item.people_impact or item.root_cause or item.recommended_step %}
+                <dl class="briefing-lines" aria-label="Briefing lines">
+                  {% if item.party_action %}
+                    <div class="briefing-line briefing-line--party">
+                      <dt><i class="fa-light fa-flag" aria-hidden="true"></i><span>Party</span></dt>
+                      <dd>{{ item.party_action }}</dd>
+                    </div>
+                  {% endif %}
+                  {% if item.people_impact %}
+                    <div class="briefing-line briefing-line--people">
+                      <dt><i class="fa-light fa-people-group" aria-hidden="true"></i><span>People</span></dt>
+                      <dd>{{ item.people_impact }}</dd>
+                    </div>
+                  {% endif %}
+                  {% if item.root_cause %}
+                    <div class="briefing-line briefing-line--why">
+                      <dt><i class="fa-light fa-magnifying-glass" aria-hidden="true"></i><span>Why</span></dt>
+                      <dd>{{ item.root_cause }}</dd>
+                    </div>
+                  {% endif %}
+                  {% if item.recommended_step %}
+                    <div class="briefing-line briefing-line--step">
+                      <dt><i class="fa-light fa-bullseye-arrow" aria-hidden="true"></i><span>Next step</span></dt>
+                      <dd>{{ item.recommended_step }}</dd>
+                    </div>
+                  {% endif %}
+                </dl>
+              {% endif %}
+
+              {% if item.evidence_original %}
+                <blockquote class="card-quote">
                   {% for quote in item.evidence_original %}
                     <p>{{ quote }}</p>
                   {% endfor %}
+                  <cite>Evidence &middot; {{ item.source_name }}</cite>
+                </blockquote>
+              {% endif %}
+
+              <footer class="card-foot">
+                <span class="card-context"><i class="fa-light fa-building" aria-hidden="true"></i>&nbsp;{{ item.department }} &middot; <i class="fa-light fa-location-dot" aria-hidden="true"></i>&nbsp;{{ item.district }}</span>
+                <div class="card-actions" role="group" aria-label="Card actions">
+                  <button type="button" class="card-action card-action--review" data-action="review" data-analysis-id="{{ item.analysis_id }}" title="Mark this analysis as reviewed">
+                    <i class="fa-light fa-circle-check" aria-hidden="true"></i><span>Reviewed</span>
+                  </button>
+                  <button type="button" class="card-action card-action--escalate" data-action="escalate" data-analysis-id="{{ item.analysis_id }}" title="Escalate for senior attention">
+                    <i class="fa-light fa-flag" aria-hidden="true"></i><span>Escalate</span>
+                  </button>
+                  <a class="card-link" href="{{ item.source_url }}" rel="noreferrer" target="_blank">
+                    Open source
+                    <i class="fa-light fa-arrow-up-right-from-square link-arrow" aria-hidden="true"></i>
+                  </a>
                 </div>
-                <div class="narrative-footer">
-                  <span>{{ item.department }} · {{ item.district }}</span>
-                  <a href="{{ item.source_url }}" rel="noreferrer" target="_blank">Open evidence</a>
-                </div>
-              </div>
+              </footer>
             </article>
           {% else %}
             <p class="empty">No newspaper evidence imported yet.</p>
           {% endfor %}
         </div>
+
+        <div class="narrative-table-wrap" aria-label="Data table view">
+          <table class="narrative-table">
+            <thead>
+              <tr>
+                <th scope="col" data-sort="source">Source</th>
+                <th scope="col" data-sort="stance">Stance</th>
+                <th scope="col" data-sort="title" class="col-title">Headline</th>
+                <th scope="col">Why &amp; Next step</th>
+                <th scope="col" data-sort="department">Department</th>
+                <th scope="col" data-sort="district">District</th>
+                <th scope="col" class="col-actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in latest_items %}
+                <tr
+                  class="narrative-row {{ item.portrayal_kind }}"
+                  data-role="latest-row"
+                  data-raw-id="{{ item.raw_item_id }}"
+                  data-analysis-id="{{ item.analysis_id }}"
+                  data-stance="{{ item.stance }}"
+                  data-source="{{ item.source_name }}"
+                  data-needs-review="{{ 'true' if item.needs_human_review else 'false' }}"
+                  data-published-at="{{ (item.published_at or item.ingested_at).isoformat() if (item.published_at or item.ingested_at) else '' }}"
+                  data-department="{{ item.department }}"
+                  data-district="{{ item.district }}"
+                  data-title="{{ (item.title or 'Untitled item')|lower }}"
+                >
+                  <td class="col-source">{{ item.source_name }}</td>
+                  <td class="col-stance">
+                    <span class="stance-chip stance-chip--{{ item.portrayal_kind }}">{{ item.stance_label.split(' / ')[0] }}</span>
+                  </td>
+                  <td class="col-title">
+                    <strong>{{ item.title or "Untitled item" }}</strong>
+                    {% if item.summary_english or item.summary %}
+                      <span class="row-summary">{{ item.summary_english or item.summary }}</span>
+                    {% endif %}
+                  </td>
+                  <td class="col-why">
+                    {% if item.root_cause %}<span class="row-why">{{ item.root_cause }}</span>{% endif %}
+                    {% if item.recommended_step %}<span class="row-step">{{ item.recommended_step }}</span>{% endif %}
+                    {% if not item.root_cause and not item.recommended_step %}<span class="row-empty">&mdash;</span>{% endif %}
+                  </td>
+                  <td class="col-dept">{{ item.department or "—" }}</td>
+                  <td class="col-dist">{{ item.district or "—" }}</td>
+                  <td class="col-actions">
+                    <button type="button" class="card-action card-action--review" data-action="review" data-analysis-id="{{ item.analysis_id }}" title="Mark reviewed">
+                      <i class="fa-light fa-circle-check" aria-hidden="true"></i>
+                    </button>
+                    <button type="button" class="card-action card-action--escalate" data-action="escalate" data-analysis-id="{{ item.analysis_id }}" title="Escalate">
+                      <i class="fa-light fa-flag" aria-hidden="true"></i>
+                    </button>
+                    <a class="row-link" href="{{ item.source_url }}" rel="noreferrer" target="_blank" title="Open source">
+                      <i class="fa-light fa-arrow-up-right-from-square" aria-hidden="true"></i>
+                    </a>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </section>
 
-      <section id="people" class="briefing-section two-column-briefing">
-        <div class="briefing-panel">
-          <div class="section-heading compact">
-            <div>
-              <p class="section-kicker">People Issues</p>
-              <h2>Concerns to Watch</h2>
-            </div>
-          </div>
+      <section id="people" class="two-column-briefing" aria-label="People issues and positive coverage">
+        <article class="column column--concerns">
+          <header class="rubric compact">
+            <p class="rubric-kicker rubric-kicker--red">People Issues</p>
+            <h2>Concerns to Watch</h2>
+          </header>
           <div class="brief-list">
             {% for item in concern_items %}
-              <article>
-                <strong>{{ item.title or "Untitled item" }}</strong>
-                <span>{{ item.stance_label }} · {{ item.source_name }}</span>
-                <p>{{ item.summary_english or item.summary }}</p>
+              <article class="brief-item">
+                <p class="brief-source"><i class="fa-light fa-newspaper" aria-hidden="true"></i>&nbsp;{{ item.source_name }} &middot; <em>{{ item.stance_label.split(' / ')[0] }}</em>{% if item.department and item.department|lower not in ('general','unspecified') %} &middot; {{ item.department }}{% endif %}</p>
+                <h4>{{ item.title or "Untitled item" }}</h4>
+                <p class="brief-lede">{{ item.summary_english or item.summary }}</p>
+                {% if item.root_cause or item.recommended_step %}
+                  <dl class="brief-actions">
+                    {% if item.root_cause %}
+                      <div class="brief-action brief-action--why">
+                        <dt><i class="fa-light fa-magnifying-glass" aria-hidden="true"></i><span>Why</span></dt>
+                        <dd>{{ item.root_cause }}</dd>
+                      </div>
+                    {% endif %}
+                    {% if item.recommended_step %}
+                      <div class="brief-action brief-action--step">
+                        <dt><i class="fa-light fa-bullseye-arrow" aria-hidden="true"></i><span>Suggested next step</span></dt>
+                        <dd>{{ item.recommended_step }}</dd>
+                      </div>
+                    {% endif %}
+                  </dl>
+                {% endif %}
+                <footer class="brief-foot">
+                  <a class="brief-link" href="{{ item.source_url }}" rel="noreferrer" target="_blank">
+                    Open source
+                    <i class="fa-light fa-arrow-up-right-from-square" aria-hidden="true"></i>
+                  </a>
+                </footer>
               </article>
             {% else %}
               <p class="empty">No negative or mixed people-issue items in this pilot set.</p>
             {% endfor %}
           </div>
-        </div>
+        </article>
 
-        <div class="briefing-panel">
-          <div class="section-heading compact">
-            <div>
-              <p class="section-kicker">Positive Coverage</p>
-              <h2>Supportive Signals</h2>
-            </div>
-          </div>
+        <article class="column column--positive">
+          <header class="rubric compact">
+            <p class="rubric-kicker rubric-kicker--green">Positive Coverage</p>
+            <h2>Supportive Signals</h2>
+          </header>
           <div class="brief-list">
             {% for item in positive_items %}
-              <article>
-                <strong>{{ item.title or "Untitled item" }}</strong>
-                <span>{{ item.source_name }}</span>
-                <p>{{ item.summary_english or item.summary }}</p>
+              <article class="brief-item">
+                <p class="brief-source"><i class="fa-light fa-newspaper" aria-hidden="true"></i>&nbsp;{{ item.source_name }}{% if item.department and item.department|lower not in ('general','unspecified') %} &middot; {{ item.department }}{% endif %}</p>
+                <h4>{{ item.title or "Untitled item" }}</h4>
+                <p class="brief-lede">{{ item.summary_english or item.summary }}</p>
+                {% if item.root_cause or item.recommended_step %}
+                  <dl class="brief-actions">
+                    {% if item.root_cause %}
+                      <div class="brief-action brief-action--why">
+                        <dt><i class="fa-light fa-magnifying-glass" aria-hidden="true"></i><span>Why</span></dt>
+                        <dd>{{ item.root_cause }}</dd>
+                      </div>
+                    {% endif %}
+                    {% if item.recommended_step %}
+                      <div class="brief-action brief-action--step">
+                        <dt><i class="fa-light fa-bullseye-arrow" aria-hidden="true"></i><span>Suggested next step</span></dt>
+                        <dd>{{ item.recommended_step }}</dd>
+                      </div>
+                    {% endif %}
+                  </dl>
+                {% endif %}
+                <footer class="brief-foot">
+                  <a class="brief-link" href="{{ item.source_url }}" rel="noreferrer" target="_blank">
+                    Open source
+                    <i class="fa-light fa-arrow-up-right-from-square" aria-hidden="true"></i>
+                  </a>
+                </footer>
               </article>
             {% else %}
               <p class="empty">No positive items in this pilot set.</p>
             {% endfor %}
           </div>
-        </div>
+        </article>
       </section>
 
-      <section id="evidence" class="briefing-section">
-        <div class="section-heading compact">
-          <div>
-            <p class="section-kicker">Newspaper Coverage</p>
-            <h2>Pilot Source Mix</h2>
+      {% if trends and trends.total_items %}
+        {% set max_day_total = trends.stance_timeseries|map(attribute='total')|max %}
+        {% set max_dept_total = (trends.department_breakdown|map(attribute='total')|list|max) if trends.department_breakdown else 0 %}
+        {% set max_dist_total = (trends.district_breakdown|map(attribute='total')|list|max) if trends.district_breakdown else 0 %}
+        <section id="trends" class="trends-panel" aria-label="Trends and breakdowns">
+          <header class="rubric compact">
+            <div class="rubric-text">
+              <p class="rubric-kicker"><i class="fa-light fa-chart-line" aria-hidden="true"></i>&nbsp;Trends</p>
+              <h2>Coverage at a glance &mdash; last 14 days</h2>
+              <p class="rubric-lede">Stance over time and where the coverage is concentrated. Counts dedupe to one analysis per article.</p>
+            </div>
+          </header>
+          <div class="trends-grid">
+            <article class="trend-card trend-card--wide">
+              <header class="trend-card-head">
+                <span class="trend-eyebrow">Stance Over Time</span>
+                <span class="trend-legend">
+                  <span class="legend-pill legend-pill--positive"><span></span>Positive</span>
+                  <span class="legend-pill legend-pill--negative"><span></span>Negative</span>
+                  <span class="legend-pill legend-pill--mixed"><span></span>Mixed</span>
+                  <span class="legend-pill legend-pill--neutral"><span></span>Neutral</span>
+                </span>
+              </header>
+              <div class="trend-chart">
+                {% for day in trends.stance_timeseries %}
+                  {% set day_total = day.total %}
+                  {% set bar_pct = ((day_total / max_day_total) * 100)|round(1) if max_day_total else 0 %}
+                  <div class="trend-bar-col" title="{{ day.label_long }}: {{ day_total }} articles">
+                    <div class="trend-bar-stack-wrap">
+                      <div class="trend-bar-stack" style="--bar-height: {{ bar_pct }}%;">
+                        {% if day_total %}
+                          <span class="trend-bar trend-bar--positive" style="--seg: {{ ((day.positive / day_total) * 100)|round(1) }}%;"></span>
+                          <span class="trend-bar trend-bar--mixed" style="--seg: {{ ((day.mixed / day_total) * 100)|round(1) }}%;"></span>
+                          <span class="trend-bar trend-bar--neutral" style="--seg: {{ ((day.neutral / day_total) * 100)|round(1) }}%;"></span>
+                          <span class="trend-bar trend-bar--negative" style="--seg: {{ ((day.negative / day_total) * 100)|round(1) }}%;"></span>
+                        {% endif %}
+                      </div>
+                    </div>
+                    <span class="trend-axis">{{ day.label_short }}</span>
+                  </div>
+                {% endfor %}
+              </div>
+            </article>
+
+            <article class="trend-card">
+              <header class="trend-card-head">
+                <span class="trend-eyebrow"><i class="fa-light fa-building" aria-hidden="true"></i>&nbsp;Top Departments</span>
+                <span class="trend-meta">{{ trends.department_breakdown|length }} of many</span>
+              </header>
+              <div class="breakdown-list">
+                {% for row in trends.department_breakdown %}
+                  <div class="breakdown-row">
+                    <span class="breakdown-label" title="{{ row.label }}">{{ row.label }}</span>
+                    <span class="breakdown-bar" aria-hidden="true">
+                      {% set width_pct = ((row.total / max_dept_total) * 100)|round(1) if max_dept_total else 0 %}
+                      <span class="breakdown-bar-fill" style="--bar-width: {{ width_pct }}%;">
+                        {% if row.total %}
+                          <span class="seg seg--positive" style="--seg: {{ ((row.positive / row.total) * 100)|round(1) }}%;"></span>
+                          <span class="seg seg--mixed"    style="--seg: {{ ((row.mixed    / row.total) * 100)|round(1) }}%;"></span>
+                          <span class="seg seg--neutral"  style="--seg: {{ ((row.neutral  / row.total) * 100)|round(1) }}%;"></span>
+                          <span class="seg seg--negative" style="--seg: {{ ((row.negative / row.total) * 100)|round(1) }}%;"></span>
+                        {% endif %}
+                      </span>
+                    </span>
+                    <strong class="breakdown-count">{{ row.total }}</strong>
+                  </div>
+                {% else %}
+                  <p class="empty">No department signal yet.</p>
+                {% endfor %}
+              </div>
+            </article>
+
+            <article class="trend-card">
+              <header class="trend-card-head">
+                <span class="trend-eyebrow"><i class="fa-light fa-location-dot" aria-hidden="true"></i>&nbsp;Top Districts</span>
+                <span class="trend-meta">{{ trends.district_breakdown|length }} of many</span>
+              </header>
+              <div class="breakdown-list">
+                {% for row in trends.district_breakdown %}
+                  <div class="breakdown-row">
+                    <span class="breakdown-label" title="{{ row.label }}">{{ row.label }}</span>
+                    <span class="breakdown-bar" aria-hidden="true">
+                      {% set width_pct = ((row.total / max_dist_total) * 100)|round(1) if max_dist_total else 0 %}
+                      <span class="breakdown-bar-fill" style="--bar-width: {{ width_pct }}%;">
+                        {% if row.total %}
+                          <span class="seg seg--positive" style="--seg: {{ ((row.positive / row.total) * 100)|round(1) }}%;"></span>
+                          <span class="seg seg--mixed"    style="--seg: {{ ((row.mixed    / row.total) * 100)|round(1) }}%;"></span>
+                          <span class="seg seg--neutral"  style="--seg: {{ ((row.neutral  / row.total) * 100)|round(1) }}%;"></span>
+                          <span class="seg seg--negative" style="--seg: {{ ((row.negative / row.total) * 100)|round(1) }}%;"></span>
+                        {% endif %}
+                      </span>
+                    </span>
+                    <strong class="breakdown-count">{{ row.total }}</strong>
+                  </div>
+                {% else %}
+                  <p class="empty">No district signal yet.</p>
+                {% endfor %}
+              </div>
+            </article>
           </div>
-        </div>
-        <div class="source-grid official-source-grid">
+        </section>
+      {% endif %}
+
+      <section id="evidence" class="source-section">
+        <header class="rubric">
+          <div class="rubric-text">
+            <p class="rubric-kicker">Source Mix</p>
+            <h2>Newspaper Coverage</h2>
+            <p class="rubric-lede">Distribution of evidence across the pilot newspaper rotation.</p>
+          </div>
+        </header>
+        <div class="source-list">
           {% for source in summary.top_sources %}
             <div class="source-row">
-              <span>{{ source.label }}</span>
-              <strong>{{ source.count }}</strong>
+              <span class="source-name">{{ source.label }}</span>
+              <span class="source-bar" aria-hidden="true">
+                <span class="source-bar-fill" style="--bar-width: {{ (source.count / (summary.top_sources[0].count or 1) * 100)|round(0) }}%;"></span>
+              </span>
+              <strong class="source-count">{{ source.count }}</strong>
             </div>
           {% else %}
             <p class="empty">No source coverage yet.</p>
           {% endfor %}
         </div>
       </section>
+
     </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-row">
+        <p class="footer-brand">
+          <strong>TVK</strong>
+          <span>Tamilaga Vettri Kazhagam &middot; Public Media Briefing</span>
+        </p>
+        <p class="footer-meta">
+          Confidential &middot; For internal use of the party leadership office only.
+        </p>
+      </div>
+    </footer>
   </body>
 </html>

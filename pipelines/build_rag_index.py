@@ -14,13 +14,19 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from tnmi.config import Settings
-from tnmi.embeddings import HashEmbeddingProvider, OpenAIEmbeddingProvider
+from tnmi.embeddings import (
+    HashEmbeddingProvider,
+    LocalBagOfWordsEmbeddingProvider,
+    OpenAIEmbeddingProvider,
+)
 from tnmi.rag import RAGIndexer
 from tnmi.storage import RawItemRecord, create_session_factory, init_db
 from tnmi.vector_index import InMemoryVectorIndex, TurbovecVectorIndex, VectorIndex
 
 
-def build_embedding_provider(settings: Settings, *, mock_embeddings: bool):
+def build_embedding_provider(settings: Settings, *, mock_embeddings: bool, bag_of_words: bool):
+    if bag_of_words:
+        return LocalBagOfWordsEmbeddingProvider(dimension=settings.openai_embedding_dimension)
     if mock_embeddings:
         return HashEmbeddingProvider(dimension=settings.openai_embedding_dimension)
     if settings.openai_api_key:
@@ -29,7 +35,9 @@ def build_embedding_provider(settings: Settings, *, mock_embeddings: bool):
             model_name=settings.openai_embedding_model,
             dimension=settings.openai_embedding_dimension,
         )
-    raise RuntimeError("OPENAI_API_KEY is required unless --mock-embeddings is provided")
+    raise RuntimeError(
+        "OPENAI_API_KEY is required unless --mock-embeddings or --bag-of-words is provided"
+    )
 
 
 def build_vector_index(*, backend: str, dimension: int) -> VectorIndex:
@@ -42,7 +50,12 @@ def build_vector_index(*, backend: str, dimension: int) -> VectorIndex:
 
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mock-embeddings", action="store_true")
+    parser.add_argument("--mock-embeddings", action="store_true", help="Hash-only (non-semantic) embeddings")
+    parser.add_argument(
+        "--bag-of-words",
+        action="store_true",
+        help="Content-aware bag-of-words local embeddings (good enough for demo theme clustering)",
+    )
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--source-type", default="news")
     parser.add_argument("--vector-backend", choices=["memory", "turbovec"], default="memory")
@@ -50,7 +63,11 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     settings = Settings()
     try:
-        embedding_provider = build_embedding_provider(settings, mock_embeddings=args.mock_embeddings)
+        embedding_provider = build_embedding_provider(
+            settings,
+            mock_embeddings=args.mock_embeddings,
+            bag_of_words=args.bag_of_words,
+        )
         vector_index = build_vector_index(backend=args.vector_backend, dimension=embedding_provider.dimension)
     except (RuntimeError, ValueError, ImportError) as exc:
         parser.error(str(exc))

@@ -62,6 +62,14 @@ class NewspaperSource(BaseModel):
     rss_urls: list[HttpUrl] = Field(default_factory=list)
     sitemap_urls: list[HttpUrl] = Field(default_factory=list)
     section_urls: list[HttpUrl] = Field(default_factory=list)
+    # TN coverage metadata (Phase B). "statewide" means the paper covers all
+    # 38 districts. A specific district name (e.g. "Madurai") means the paper
+    # is the local edition for that district.
+    coverage_scope: str = "statewide"
+    district_focus: str | None = None
+    # Optional cross-reference to Media Cloud's source registry — lets us
+    # reconcile imports later without duplicating sources.
+    mediacloud_media_id: int | None = None
     legal_notes: str = "Public newspaper source; respect robots, rate limits, and terms."
 
 
@@ -125,6 +133,13 @@ class AIAnalysis(BaseModel):
     severity: Severity
     summary_original: str
     summary_english: str
+    # Chief's briefing lens — short, crisp, action-oriented. Empty string when
+    # the article does not warrant that angle (e.g. a story unrelated to TVK
+    # members has no party_action line).
+    party_action: str = ""
+    people_impact: str = ""
+    root_cause: str = ""
+    recommended_step: str = ""
     positive_points: list[str] = Field(default_factory=list)
     negative_points: list[str] = Field(default_factory=list)
     evidence_quotes_original: list[str] = Field(default_factory=list)

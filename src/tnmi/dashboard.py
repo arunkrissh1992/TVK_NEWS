@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from collections import Counter
-from datetime import datetime, timezone
+from collections import Counter, defaultdict
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import Select, case, func, select
 from sqlalchemy.orm import Session
 
+from tnmi.clusters import RecurringThemesReport, ThemeCluster, find_recurring_themes
 from tnmi.storage import (
     AIAnalysisRecord,
     ChunkEmbeddingRecord,
@@ -72,6 +73,30 @@ def get_dashboard_summary(session: Session) -> dict[str, Any]:
     items = session.scalars(select(RawItemRecord).order_by(RawItemRecord.id)).all()
     embeddings = session.scalars(select(ChunkEmbeddingRecord).order_by(ChunkEmbeddingRecord.id)).all()
     reviewed_analysis_ids = set(session.scalars(select(ReviewDecisionRecord.analysis_id)).all())
+    # Dedupe to one analysis per article so KPI counts match the narrative
+    # grid below. Prefer real (non-mock) models; among equal, prefer most
+    # recently created.
+    dedup_by_raw: dict[int, AIAnalysisRecord] = {}
+    for row in analyses:
+        existing = dedup_by_raw.get(row.raw_item_id)
+        if existing is None:
+            dedup_by_raw[row.raw_item_id] = row
+            continue
+        existing_is_mock = existing.model_name == "mock"
+        row_is_mock = row.model_name == "mock"
+        if existing_is_mock and not row_is_mock:
+            dedup_by_raw[row.raw_item_id] = row
+        elif existing_is_mock == row_is_mock:
+            existing_at = existing.created_at
+            row_at = row.created_at
+            if row_at is not None and (existing_at is None or row_at > existing_at):
+                dedup_by_raw[row.raw_item_id] = row
+    # Same relevance gate as list_latest_items — KPI counts should match the
+    # cards / table rows the operator actually sees on screen.
+    unique_analyses = [
+        row for row in dedup_by_raw.values()
+        if (row.government_relevance or "").lower() != "none"
+    ]
     source_counts = _count_values([row.source_name for row in items])
     model_counts = _count_values([row.model_name for row in analyses])
     embedding_provider_counts = _count_values(
@@ -87,22 +112,26 @@ def get_dashboard_summary(session: Session) -> dict[str, Any]:
         "total_embeddings": len(embeddings),
         "openai_analyses": sum(1 for row in analyses if row.model_name != "mock"),
         "mock_analyses": model_counts.get("mock", 0),
-        "needs_human_review": sum(1 for row in analyses if row.needs_human_review),
+        "needs_human_review": sum(1 for row in unique_analyses if row.needs_human_review),
         "reviewed": len(reviewed_analysis_ids),
-        "pending_review": sum(1 for row in analyses if row.needs_human_review and row.id not in reviewed_analysis_ids),
-        "positive_count": sum(1 for row in analyses if row.stance_toward_government == "positive"),
-        "negative_count": sum(1 for row in analyses if row.stance_toward_government == "negative"),
-        "mixed_count": sum(1 for row in analyses if row.stance_toward_government == "mixed"),
-        "neutral_count": sum(1 for row in analyses if row.stance_toward_government == "neutral"),
+        "pending_review": sum(
+            1
+            for row in unique_analyses
+            if row.needs_human_review and row.id not in reviewed_analysis_ids
+        ),
+        "positive_count": sum(1 for row in unique_analyses if row.stance_toward_government == "positive"),
+        "negative_count": sum(1 for row in unique_analyses if row.stance_toward_government == "negative"),
+        "mixed_count": sum(1 for row in unique_analyses if row.stance_toward_government == "mixed"),
+        "neutral_count": sum(1 for row in unique_analyses if row.stance_toward_government == "neutral"),
         "people_issue_count": sum(
             1
-            for row in analyses
+            for row in unique_analyses
             if row.stance_toward_government in {"negative", "mixed"} or row.needs_human_review
         ),
-        "stance_counts": _count_values([row.stance_toward_government for row in analyses]),
-        "severity_counts": _count_values([row.severity for row in analyses]),
-        "department_counts": _count_values([row.department for row in analyses]),
-        "district_counts": _count_values([row.district for row in analyses]),
+        "stance_counts": _count_values([row.stance_toward_government for row in unique_analyses]),
+        "severity_counts": _count_values([row.severity for row in unique_analyses]),
+        "department_counts": _count_values([row.department for row in unique_analyses]),
+        "district_counts": _count_values([row.district for row in unique_analyses]),
         "source_counts": source_counts,
         "top_sources": _top_counts(source_counts),
         "analysis_model_counts": model_counts,
@@ -164,7 +193,7 @@ def list_review_queue(session: Session, *, limit: int = 50) -> list[dict[str, An
 
 
 def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, Any]]:
-    bounded_limit = max(1, min(limit, 100))
+    bounded_limit = max(1, min(limit, 500))
     rows = session.execute(
         select(RawItemRecord, AIAnalysisRecord)
         .join(AIAnalysisRecord, AIAnalysisRecord.raw_item_id == RawItemRecord.id)
@@ -182,11 +211,17 @@ def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, An
     for item, analysis in rows:
         if item.id in latest_by_raw_item:
             continue
+        # Skip listing/RSS-shell articles. The analyzer marks them
+        # government_relevance == "none" so the briefing stays focused on
+        # actual stories about TVK / the government / public matters.
+        if (analysis.government_relevance or "").lower() == "none":
+            continue
         latest_by_raw_item[item.id] = {
             "raw_item_id": item.id,
             "analysis_id": analysis.id,
             "source_name": item.source_name,
             "source_url": item.source_url,
+            "ingested_at": item.ingested_at,
             "title": item.title,
             "published_at": item.published_at,
             "language": item.language,
@@ -200,6 +235,10 @@ def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, An
                 "summary_original": analysis.summary_original,
                 "summary_english": analysis.summary_english,
                 "summary": analysis.summary_english or analysis.summary_original,
+                "party_action": (analysis.party_action or "").strip(),
+                "people_impact": (analysis.people_impact or "").strip(),
+                "root_cause": (analysis.root_cause or "").strip(),
+                "recommended_step": (analysis.recommended_step or "").strip(),
                 "positive_points": _display_list(analysis.positive_points),
                 "negative_points": _display_list(analysis.negative_points),
                 "evidence_original": _display_list(
@@ -219,3 +258,168 @@ def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, An
         if len(latest_by_raw_item) >= bounded_limit:
             break
     return list(latest_by_raw_item.values())
+
+
+def list_recurring_themes(
+    session: Session,
+    *,
+    limit: int = 4,
+    min_cluster_size: int = 2,
+    similarity_threshold: float = 0.7,
+) -> dict[str, Any]:
+    """Dashboard-ready payload for the Recurring Themes panel."""
+    report: RecurringThemesReport = find_recurring_themes(
+        session,
+        similarity_threshold=similarity_threshold,
+        min_cluster_size=min_cluster_size,
+        limit=limit,
+    )
+    return {
+        "has_themes": report.has_themes,
+        "diagnostic": report.diagnostic,
+        "total_articles_indexed": report.total_articles_indexed,
+        "themes": [_serialise_theme(cluster) for cluster in report.themes],
+    }
+
+
+def _serialise_theme(cluster: ThemeCluster) -> dict[str, Any]:
+    stance = cluster.dominant_stance
+    return {
+        "representative_id": cluster.representative_id,
+        "sample_title": cluster.sample_title or "Untitled item",
+        "sample_summary": cluster.sample_summary,
+        "size": cluster.size,
+        "source_count": cluster.source_count,
+        "dominant_stance": stance,
+        "portrayal_kind": _portrayal_kind(stance),
+        "stance_label": _stance_label(stance),
+        "stance_breakdown": cluster.stance_breakdown,
+        "sources": sorted({m.source_name for m in cluster.members}),
+        "latest_published_at": cluster.latest_published_at,
+        "member_ids": [m.raw_item_id for m in cluster.members],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Trends + breakdowns (Batch 2)
+# ---------------------------------------------------------------------------
+
+_STANCE_KEYS = ("positive", "negative", "mixed", "neutral")
+
+
+def get_dashboard_trends(session: Session, *, days: int = 14) -> dict[str, Any]:
+    """One trip to the DB; returns:
+      - stance_timeseries: per-day stance counts for the last N days
+      - department_breakdown: top departments by article count, split by stance
+      - district_breakdown: same shape for districts
+    All counts dedupe to one analysis per raw_item (real OpenAI > mock; latest
+    wins) so the totals line up with the KPI/filter deck above.
+    """
+    rows = session.execute(
+        select(
+            AIAnalysisRecord.raw_item_id,
+            AIAnalysisRecord.stance_toward_government,
+            AIAnalysisRecord.department,
+            AIAnalysisRecord.district,
+            AIAnalysisRecord.model_name,
+            AIAnalysisRecord.created_at,
+            RawItemRecord.published_at,
+            RawItemRecord.ingested_at,
+        )
+        .join(RawItemRecord, RawItemRecord.id == AIAnalysisRecord.raw_item_id)
+        .where(RawItemRecord.source_type == "news")
+    ).all()
+
+    dedup: dict[int, dict[str, Any]] = {}
+    for raw_id, stance, department, district, model, created_at, published_at, ingested_at in rows:
+        candidate = {
+            "stance": stance,
+            "department": (department or "unspecified").strip() or "unspecified",
+            "district": (district or "unspecified").strip() or "unspecified",
+            "model": model,
+            "created_at": created_at,
+            "published_at": published_at,
+            "ingested_at": ingested_at,
+        }
+        existing = dedup.get(raw_id)
+        if existing is None:
+            dedup[raw_id] = candidate
+            continue
+        existing_mock = existing["model"] == "mock"
+        cand_mock = candidate["model"] == "mock"
+        if existing_mock and not cand_mock:
+            dedup[raw_id] = candidate
+        elif existing_mock == cand_mock:
+            if candidate["created_at"] and (
+                existing["created_at"] is None or candidate["created_at"] > existing["created_at"]
+            ):
+                dedup[raw_id] = candidate
+
+    items = list(dedup.values())
+
+    return {
+        "stance_timeseries": _stance_timeseries(items, days=days),
+        "department_breakdown": _categorical_breakdown(items, attribute="department", limit=6),
+        "district_breakdown": _categorical_breakdown(items, attribute="district", limit=6),
+        "total_items": len(items),
+    }
+
+
+def _stance_timeseries(items: list[dict[str, Any]], *, days: int) -> list[dict[str, Any]]:
+    days = max(1, days)
+    today_utc = datetime.now(timezone.utc).date()
+    start = today_utc - timedelta(days=days - 1)
+
+    buckets: dict[date, dict[str, int]] = {
+        start + timedelta(days=i): {k: 0 for k in _STANCE_KEYS}
+        for i in range(days)
+    }
+
+    for item in items:
+        when = item["published_at"] or item["ingested_at"]
+        if when is None:
+            continue
+        when_utc = when.astimezone(timezone.utc) if when.tzinfo else when.replace(tzinfo=timezone.utc)
+        day = when_utc.date()
+        if day < start or day > today_utc:
+            continue
+        stance = item["stance"] if item["stance"] in _STANCE_KEYS else "neutral"
+        buckets[day][stance] += 1
+
+    series: list[dict[str, Any]] = []
+    for day, counts in buckets.items():
+        total = sum(counts.values())
+        series.append(
+            {
+                "date": day.isoformat(),
+                "label_short": day.strftime("%d %b"),
+                "label_long": day.strftime("%A, %d %B"),
+                "total": total,
+                **counts,
+            }
+        )
+    return series
+
+
+def _categorical_breakdown(
+    items: list[dict[str, Any]], *, attribute: str, limit: int
+) -> list[dict[str, Any]]:
+    bucket: dict[str, dict[str, int]] = defaultdict(lambda: {k: 0 for k in _STANCE_KEYS})
+    for item in items:
+        label = (item.get(attribute) or "Unclassified").strip() or "Unclassified"
+        # Normalise demo/placeholder labels so the breakdown stays informative
+        # in mock mode but doesn't shout "unspecified" at the operator.
+        if label.lower() in {"unspecified", "unknown", "none", "n/a"}:
+            label = "Unclassified"
+        elif label.lower() == "general":
+            label = "General"
+        stance = item["stance"] if item["stance"] in _STANCE_KEYS else "neutral"
+        bucket[label][stance] += 1
+
+    rows: list[dict[str, Any]] = []
+    for label, counts in bucket.items():
+        total = sum(counts.values())
+        rows.append({"label": label, "total": total, **counts})
+
+    rows.sort(key=lambda row: (-row["total"], row["label"]))
+    return rows[: max(0, limit)]

@@ -23,9 +23,21 @@ def test_mock_ai_analyzer_returns_positive_for_scheme_news():
         source_name="Example",
         source_url="https://example.com/a",
         language="ta",
-        title="தமிழக அரசு புதிய திட்டம்",
-        raw_text_original="தமிழக அரசு இன்று புதிய நலத்திட்டத்தை அறிவித்தது.",
-        clean_text_original="தமிழக அரசு இன்று புதிய நலத்திட்டத்தை அறிவித்தது.",
+        title="தமிழக அரசு புதிய நலத்திட்டத்தை அறிவித்துள்ளது",
+        # Body length is intentionally above the listing-page threshold so the
+        # mock analyzer does not treat this as an RSS shell.
+        raw_text_original=(
+            "தமிழக அரசு இன்று புதிய நலத்திட்டத்தை அறிவித்தது. "
+            "முதலமைச்சர் இத்திட்டத்தை வரவேற்றுள்ளார். "
+            "இத்திட்டம் மக்களுக்கு பெரும் பயன் தருகிறது என்று அரசு கூறுகிறது. "
+            "தமிழ்நாட்டின் அனைத்து மாவட்டங்களிலும் இது செயல்படுத்தப்படும் என்று அரசு தெரிவித்துள்ளது."
+        ),
+        clean_text_original=(
+            "தமிழக அரசு இன்று புதிய நலத்திட்டத்தை அறிவித்தது. "
+            "முதலமைச்சர் இத்திட்டத்தை வரவேற்றுள்ளார். "
+            "இத்திட்டம் மக்களுக்கு பெரும் பயன் தருகிறது என்று அரசு கூறுகிறது. "
+            "தமிழ்நாட்டின் அனைத்து மாவட்டங்களிலும் இது செயல்படுத்தப்படும் என்று அரசு தெரிவித்துள்ளது."
+        ),
     )
 
     analysis = MockAIAnalyzer().analyze(item)

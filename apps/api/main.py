@@ -1,23 +1,37 @@
 from __future__ import annotations
 
+import threading
+import traceback
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
 from tnmi import __version__
+from tnmi.ai import MockAIAnalyzer, OpenAIAnalyzer
+from tnmi.local_models import LocalTamilAnalyzer
 from tnmi.config import Settings, load_newspaper_sources, load_x_handle_sources
 from tnmi.contracts import ReviewDecisionCreate
-from tnmi.dashboard import get_dashboard_summary, list_latest_items, list_review_queue
+from tnmi.dashboard import (
+    get_dashboard_summary,
+    get_dashboard_trends,
+    list_latest_items,
+    list_recurring_themes,
+    list_review_queue,
+)
+from tnmi.pipeline import DailyNewsPipeline, RequestsNewsClient
 from tnmi.storage import (
     AIAnalysisRecord,
     RawItemRecord,
     ReviewDecisionRecord,
     create_session_factory,
     get_latest_review_decision,
+    init_db,
     save_review_decision,
 )
 
@@ -25,6 +39,21 @@ app = FastAPI(title="Tamil Nadu Media Intelligence API", version=__version__)
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
+
+def _static_version() -> str:
+    """Cache-bust query string based on the on-disk mtime of the dashboard
+    static assets, so every edit forces browsers to fetch the latest file
+    instead of serving a stale cached copy."""
+    static_dir = BASE_DIR / "static"
+    latest = 0.0
+    for name in ("dashboard.css", "dashboard.js"):
+        path = static_dir / name
+        if path.exists():
+            mtime = path.stat().st_mtime
+            if mtime > latest:
+                latest = mtime
+    return str(int(latest))
 
 
 def require_operator(x_tnmi_operator_token: str | None = Header(default=None)) -> None:
@@ -209,6 +238,168 @@ def reports() -> list[dict[str, str]]:
     return [{"filename": str(item["filename"])} for item in _list_report_files(Path(settings.report_output_dir))]
 
 
+_NO_CACHE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
+
+# ---------------------------------------------------------------------------
+# Pull Latest — background ingest job
+# ---------------------------------------------------------------------------
+
+_INGEST_STATE: dict[str, Any] = {
+    "status": "idle",   # idle | running | finished | failed
+    "started_at": None,
+    "finished_at": None,
+    "result": None,     # summary dict from PipelineResult
+    "error": None,
+    "trigger": None,    # "manual" or "scheduled"
+}
+_INGEST_LOCK = threading.Lock()
+
+
+class _FallbackAnalyzer:
+    """OpenAI → Local Tamil model → Mock cascade.
+
+    On any exception from a higher-tier analyser (quota, network, refusal),
+    permanently switch to the next tier for the rest of this run. We do NOT
+    retry OpenAI per-article once it has failed once — that would burn
+    network repeatedly on a known-bad credential.
+
+    The cascade order matches the user's stated requirement:
+    "Product works 100% of days, regardless of OpenAI availability."
+    """
+
+    def __init__(self, tiers: list[Any]) -> None:
+        if not tiers:
+            raise ValueError("_FallbackAnalyzer needs at least one tier")
+        self._tiers = tiers
+        # Mark each tier as enabled until proven otherwise.
+        self._disabled: set[int] = set()
+        self.model_name = tiers[0].model_name
+
+    def analyze(self, item):  # type: ignore[no-untyped-def]
+        for index, tier in enumerate(self._tiers):
+            if index in self._disabled:
+                continue
+            try:
+                result = tier.analyze(item)
+                self.model_name = tier.model_name
+                return result
+            except Exception:
+                # Permanent skip — this tier failed at least once.
+                self._disabled.add(index)
+                traceback.print_exc()
+        # Every tier failed (very unusual — Mock should never raise). Synthesize
+        # a minimal record so the pipeline doesn't crash the whole run.
+        from tnmi.contracts import (
+            AIAnalysis as _AIAnalysis,
+            GovernmentRelevance,
+            Sentiment,
+            Severity,
+            Stance,
+        )
+        self.model_name = "fallback-empty"
+        return _AIAnalysis(
+            government_relevance=GovernmentRelevance.NONE,
+            stance_toward_government=Stance.NEUTRAL,
+            sentiment=Sentiment.NEUTRAL,
+            target="unavailable",
+            department="general",
+            district="unspecified",
+            scheme=None,
+            topic=item.title or "unavailable",
+            issue_category="unknown",
+            severity=Severity.LOW,
+            summary_original="",
+            summary_english="",
+            party_action="",
+            people_impact="",
+            root_cause="",
+            recommended_step="",
+            positive_points=[],
+            negative_points=[],
+            evidence_quotes_original=[],
+            evidence_quotes_english=[],
+            confidence=0.0,
+            needs_human_review=True,
+        )
+
+
+def _build_news_analyzer(settings: Settings):
+    """Build the cascade analyser. Order: OpenAI → LocalTamil → Mock.
+
+    When OpenAI billing is restored every article gets real GPT analysis.
+    When OpenAI is unavailable we fall back to the local Tamil-native
+    analyser (AI4Bharat IndicBERT + keyword classifier). When even that
+    is missing (no `transformers` install yet) we fall back to the mock.
+    The dashboard never sees an empty day."""
+    tiers: list[Any] = []
+    if getattr(settings, "openai_api_key", None):
+        try:
+            tiers.append(
+                OpenAIAnalyzer(
+                    api_key=settings.openai_api_key,
+                    model_name=settings.openai_model_item_classifier,
+                )
+            )
+        except Exception:
+            traceback.print_exc()
+    tiers.append(LocalTamilAnalyzer())
+    tiers.append(MockAIAnalyzer())
+    return _FallbackAnalyzer(tiers)
+
+
+def _run_ingest_job(trigger: str) -> None:
+    """Body of the background task. Mutates _INGEST_STATE so the UI can poll."""
+    with _INGEST_LOCK:
+        _INGEST_STATE.update(
+            status="running",
+            started_at=datetime.now(timezone.utc).isoformat(),
+            finished_at=None,
+            result=None,
+            error=None,
+            trigger=trigger,
+        )
+
+    try:
+        settings = Settings()
+        sources = load_newspaper_sources(settings.news_source_config)
+        analyzer = _build_news_analyzer(settings)
+        session_factory = create_session_factory(settings.database_url)
+        init_db(session_factory)
+        pipeline = DailyNewsPipeline(
+            session_factory=session_factory,
+            news_client=RequestsNewsClient(),
+            analyzer=analyzer,
+        )
+        result = pipeline.run(sources)
+        with _INGEST_LOCK:
+            _INGEST_STATE.update(
+                status="finished",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                result={
+                    "items_seen": result.items_seen,
+                    "items_saved": result.items_saved,
+                    "analyses_saved": result.analyses_saved,
+                    "failures": result.failures,
+                    "sources_skipped": result.sources_skipped,
+                    "analyzer_model": analyzer.model_name,
+                },
+            )
+    except Exception as exc:  # noqa: BLE001 — surface to the UI as a job failure
+        with _INGEST_LOCK:
+            _INGEST_STATE.update(
+                status="failed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                error=f"{exc.__class__.__name__}: {exc}",
+            )
+        # Print full traceback to server logs for debugging.
+        traceback.print_exc()
+
+
 @app.get("/dashboard", response_class=HTMLResponse, dependencies=[Depends(require_operator)])
 def dashboard_page(request: Request) -> HTMLResponse:
     settings = Settings()
@@ -216,7 +407,11 @@ def dashboard_page(request: Request) -> HTMLResponse:
     with session_factory() as session:
         summary = get_dashboard_summary(session)
         queue = list_review_queue(session, limit=50)
-        latest_items = list_latest_items(session, limit=20)
+        # Render every article so the KPI/filter counts above (which are
+        # computed across the full DB) match the cards filtered client-side.
+        latest_items = list_latest_items(session, limit=200)
+        themes = list_recurring_themes(session, limit=4)
+        trends = get_dashboard_trends(session, days=14)
     settings_status = _settings_status(settings)
     report_files = _list_report_files(Path(settings.report_output_dir))
     return templates.TemplateResponse(
@@ -226,6 +421,8 @@ def dashboard_page(request: Request) -> HTMLResponse:
             "summary": summary,
             "queue": queue,
             "latest_items": latest_items,
+            "themes": themes,
+            "trends": trends,
             **_briefing_groups(latest_items),
             "settings_status": settings_status,
             "audit_events": _dashboard_audit_events(
@@ -234,8 +431,39 @@ def dashboard_page(request: Request) -> HTMLResponse:
                 report_files=report_files,
             ),
             "report_files": report_files,
+            "static_version": _static_version(),
         },
+        headers=_NO_CACHE_HEADERS,
     )
+
+
+@app.post("/pipelines/news/run", dependencies=[Depends(require_operator)])
+def trigger_news_ingest(background_tasks: BackgroundTasks) -> dict[str, Any]:
+    """Kick off a one-off newspaper ingest run in the background.
+
+    Returns 200 immediately. The caller should poll GET /pipelines/news/status
+    until ``status`` is ``finished`` or ``failed``, then reload the dashboard.
+    Returns 409 if a run is already in progress so we never start two."""
+    with _INGEST_LOCK:
+        if _INGEST_STATE["status"] == "running":
+            return {
+                "status": "running",
+                "message": "Ingest already in progress",
+                "started_at": _INGEST_STATE["started_at"],
+            }
+
+    background_tasks.add_task(_run_ingest_job, "manual")
+    return {
+        "status": "accepted",
+        "message": "Ingest started",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/pipelines/news/status", dependencies=[Depends(require_operator)])
+def get_news_ingest_status() -> dict[str, Any]:
+    with _INGEST_LOCK:
+        return dict(_INGEST_STATE)
 
 
 @app.get("/settings", response_class=HTMLResponse, dependencies=[Depends(require_operator)])
@@ -244,7 +472,8 @@ def settings_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
         "settings.html",
-        {"settings_status": _settings_status(settings)},
+        {"settings_status": _settings_status(settings), "static_version": _static_version()},
+        headers=_NO_CACHE_HEADERS,
     )
 
 

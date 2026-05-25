@@ -66,7 +66,9 @@ def test_dashboard_summary_counts_analysis_and_review_status(tmp_path):
     assert summary["needs_human_review"] == 1
     assert summary["reviewed"] == 1
     assert summary["pending_review"] == 0
-    assert summary["stance_counts"] == {"negative": 1, "positive": 2}
+    # Stance counts dedupe to one analysis per raw item (prefer non-mock).
+    # raw_one → negative (mock, only one). raw_two → positive (gpt-5-mini wins over mock).
+    assert summary["stance_counts"] == {"negative": 1, "positive": 1}
     assert summary["severity_counts"]["high"] == 1
     assert summary["department_counts"]["transport"] == 1
     assert summary["district_counts"]["Chennai"] == 1
