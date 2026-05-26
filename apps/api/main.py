@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
+import tempfile
 import threading
 import traceback
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
@@ -405,7 +408,7 @@ def _run_ingest_job(trigger: str) -> None:
 
 
 @app.get("/dashboard", response_class=HTMLResponse, dependencies=[Depends(require_operator)])
-def dashboard_page(request: Request) -> HTMLResponse:
+def dashboard_page(request: Request, print: int = 0) -> HTMLResponse:
     settings = Settings()
     session_factory = create_session_factory(settings.database_url)
     with session_factory() as session:
@@ -443,8 +446,108 @@ def dashboard_page(request: Request) -> HTMLResponse:
             ),
             "report_files": report_files,
             "static_version": _static_version(),
+            "print_mode": bool(print),
         },
         headers=_NO_CACHE_HEADERS,
+    )
+
+
+_CHROME_CANDIDATES = (
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    "/usr/bin/google-chrome",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+)
+
+
+def _find_browser_for_pdf() -> str | None:
+    """Locate a Chromium-family browser usable for --print-to-pdf."""
+    for path in _CHROME_CANDIDATES:
+        if Path(path).exists():
+            return path
+    for name in ("chrome", "google-chrome", "chromium", "msedge"):
+        which = shutil.which(name)
+        if which:
+            return which
+    return None
+
+
+@app.get("/reports/pdf/today", dependencies=[Depends(require_operator)])
+def download_today_pdf(request: Request) -> Response:
+    """Render the dashboard's print mode to a PDF via headless Chrome and
+    stream it back. Uses ``--print-to-pdf`` so the layout matches the
+    on-screen briefing pixel-for-pixel — same fonts, same colors, same
+    cards — just with interactive controls hidden via the print CSS."""
+    browser = _find_browser_for_pdf()
+    if not browser:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "No Chromium browser found for PDF rendering. Install Google "
+                "Chrome or Microsoft Edge and retry."
+            ),
+        )
+
+    # Build the URL the browser will hit. Use the live request host so the
+    # browser hits the same FastAPI process, but force ?print=1 so the
+    # template renders the print-friendly variant.
+    base_url = str(request.base_url).rstrip("/")
+    dashboard_url = f"{base_url}/dashboard?print=1"
+
+    # Pass the operator token so the dashboard route lets the browser in,
+    # if the operator has token guard enabled. Browsers don't support
+    # arbitrary headers via the URL bar, so we plumb the token through a
+    # short-lived header by setting a cookie via the browser's
+    # --header-from-file? Chromium does not expose that — we rely on the
+    # browser's default behaviour: when operator_api_token is empty the
+    # guard is permissive (typical local-demo setup).
+    today = date.today().isoformat()
+    with tempfile.TemporaryDirectory(prefix="tnmi-pdf-") as tmp:
+        out_path = Path(tmp) / f"tvk-briefing-{today}.pdf"
+        cmd = [
+            browser,
+            "--headless=new",
+            "--disable-gpu",
+            "--hide-scrollbars",
+            "--no-pdf-header-footer",
+            "--print-to-pdf-no-header",
+            "--no-margins",
+            f"--print-to-pdf={out_path}",
+            "--virtual-time-budget=8000",
+            dashboard_url,
+        ]
+        try:
+            result = subprocess.run(
+                cmd,
+                check=False,
+                capture_output=True,
+                timeout=60,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise HTTPException(
+                status_code=504,
+                detail="PDF rendering timed out after 60 seconds",
+            ) from exc
+
+        if not out_path.exists():
+            stderr = (result.stderr or b"").decode("utf-8", "replace")[:800]
+            raise HTTPException(
+                status_code=500,
+                detail=f"Chrome did not produce a PDF: {stderr}",
+            )
+
+        pdf_bytes = out_path.read_bytes()
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="tvk-briefing-{today}.pdf"',
+            "Cache-Control": "no-store",
+        },
     )
 
 

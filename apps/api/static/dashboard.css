@@ -2063,6 +2063,60 @@ html.is-ready .reveal[data-reveal-delay="5"] { transition-delay: 300ms; }
   .rubric { flex-direction: column; align-items: flex-start; gap: 8px; }
 }
 
+/* ===== Print mode (PDF brief) ===== */
+
+@media print {
+  body { background: #fff !important; }
+  .topline,
+  .nav-strip,
+  .filter-bar,
+  .card-actions,
+  .pull-latest,
+  .filter-deck,
+  .view-toggle,
+  .table-view,
+  .skip-link,
+  .briefing-table-wrap,
+  .site-footer { display: none !important; }
+  .main-shell { padding: 12px 0 0 !important; }
+  .masthead { padding: 12px 0 8px !important; border-bottom: 2px solid var(--ink); }
+  h1 { font-size: 22px !important; }
+  .themes-panel,
+  .narrative-section,
+  .two-column-briefing,
+  .trends-panel,
+  .source-section { box-shadow: none !important; border: 1px solid #cccccc; page-break-inside: avoid; margin-top: 10px !important; }
+  .narrative-card,
+  .theme-card { page-break-inside: avoid; box-shadow: none !important; border: 1px solid #d0d0d0 !important; }
+  .narrative-grid { grid-template-columns: 1fr 1fr !important; gap: 8px !important; }
+  .card-link,
+  .card-action,
+  .brief-link { display: none !important; }
+  a { text-decoration: none !important; color: var(--ink) !important; }
+}
+
+/* Force the print look on screen when the dashboard PDF endpoint loads
+   /dashboard?print=1, so headless Chrome renders the print layout
+   without quirks of @media print interpretation. */
+html[data-print-mode="1"] body { background: #fff !important; }
+html[data-print-mode="1"] .topline,
+html[data-print-mode="1"] .nav-strip,
+html[data-print-mode="1"] .filter-bar,
+html[data-print-mode="1"] .card-actions,
+html[data-print-mode="1"] .pull-latest,
+html[data-print-mode="1"] .filter-deck,
+html[data-print-mode="1"] .view-toggle,
+html[data-print-mode="1"] .table-view,
+html[data-print-mode="1"] .skip-link,
+html[data-print-mode="1"] .briefing-table-wrap,
+html[data-print-mode="1"] .site-footer { display: none !important; }
+html[data-print-mode="1"] .main-shell { padding-top: 12px !important; }
+html[data-print-mode="1"] .narrative-card,
+html[data-print-mode="1"] .theme-card { page-break-inside: avoid; box-shadow: none !important; }
+html[data-print-mode="1"] .card-link,
+html[data-print-mode="1"] .card-action,
+html[data-print-mode="1"] .brief-link { display: none !important; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;
