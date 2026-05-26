@@ -51,22 +51,20 @@ newspapers:
     priority: 1
     active: false
     coverage_scope: statewide
-    rss_urls:
-      - https://www.dailythanthi.com/rss
+    rss_urls: []
     section_urls:
       - https://www.dailythanthi.com/
-    legal_notes: Pending RSS URL verification.
+    legal_notes: 'dailythanthi.com/rss returns 404 — site no longer exposes a public feed. Use sitemap or licensed access.'
 
   - name: Dinakaran
     language_hint: ta
     priority: 1
     active: false
     coverage_scope: statewide
-    rss_urls:
-      - https://www.dinakaran.com/rss
+    rss_urls: []
     section_urls:
       - https://www.dinakaran.com/
-    legal_notes: Pending RSS URL verification.
+    legal_notes: 'dinakaran.com blocks scrapers with 403 — needs a publisher-approved feed or licensed API.'
 
   - name: Dinamalar
     language_hint: ta
@@ -115,36 +113,35 @@ newspapers:
   - name: The Hindu (Chennai)
     language_hint: en
     priority: 1
-    active: false
+    active: true
     coverage_scope: national-with-tn-bureau
     rss_urls:
       - https://www.thehindu.com/news/cities/chennai/feeder/default.rss
       - https://www.thehindu.com/news/national/tamil-nadu/feeder/default.rss
     section_urls:
       - https://www.thehindu.com/news/national/tamil-nadu/
-    legal_notes: Pending RSS verification.
+    legal_notes: Verified 2026-05; serves valid RSS at both Chennai and Tamil Nadu feeds.
 
   - name: Times of India (Chennai)
     language_hint: en
     priority: 1
-    active: false
+    active: true
     coverage_scope: national-with-tn-bureau
     rss_urls:
       - https://timesofindia.indiatimes.com/rssfeeds/-2128816011.cms
     section_urls:
       - https://timesofindia.indiatimes.com/city/chennai
-    legal_notes: Pending RSS verification.
+    legal_notes: Verified 2026-05; TOI uses a numeric feed ID for the Chennai section.
 
   - name: The New Indian Express (Chennai)
     language_hint: en
     priority: 2
     active: false
     coverage_scope: national-with-tn-bureau
-    rss_urls:
-      - https://www.newindianexpress.com/Cities/Chennai/rssfeed/?id=193&getXmlFeed=true
+    rss_urls: []
     section_urls:
       - https://www.newindianexpress.com/states/tamil-nadu
-    legal_notes: Pending RSS verification.
+    legal_notes: 'newindianexpress.com legacy RSS path returns 404. Needs publisher-supplied feed.'
 
   - name: Deccan Chronicle (Chennai)
     language_hint: en
@@ -159,35 +156,34 @@ newspapers:
   - name: The Federal
     language_hint: en
     priority: 2
-    active: false
+    active: true
     coverage_scope: national-with-tn-bureau
     rss_urls:
       - https://thefederal.com/feed
     section_urls:
       - https://thefederal.com/category/states/tamil-nadu/
-    legal_notes: Pending RSS verification.
+    legal_notes: Verified 2026-05; large RSS feed (~500KB) with full-text articles.
 
   - name: News Minute
     language_hint: en
     priority: 2
-    active: false
+    active: true
     coverage_scope: national-with-tn-bureau
     rss_urls:
       - https://www.thenewsminute.com/feed
     section_urls:
       - https://www.thenewsminute.com/tamilnadu
-    legal_notes: Pending RSS verification.
+    legal_notes: Verified 2026-05; small feed but valid RSS.
 
   - name: News18 Tamil Nadu (English)
     language_hint: en
     priority: 3
     active: false
     coverage_scope: national-with-tn-bureau
-    rss_urls:
-      - https://www.news18.com/rss/india/tamil-nadu.xml
+    rss_urls: []
     section_urls:
       - https://www.news18.com/tamil-nadu/
-    legal_notes: Pending RSS verification.
+    legal_notes: 'news18.com RSS endpoint returns 403 to non-browser user-agents — needs a publisher-issued API key or licensed access.'
 
   # ====================================================================
   # Tier 1 — Tamil TV / web news channels (high-velocity)
@@ -196,24 +192,23 @@ newspapers:
   - name: Polimer News
     language_hint: ta
     priority: 2
-    active: false
+    active: true
     coverage_scope: statewide
     rss_urls:
       - https://www.polimernews.com/rss
     section_urls:
       - https://www.polimernews.com/
-    legal_notes: Pending RSS verification.
+    legal_notes: Verified 2026-05; valid RSS with ~100KB of Tamil headlines.
 
   - name: Puthiya Thalaimurai
     language_hint: ta
     priority: 2
     active: false
     coverage_scope: statewide
-    rss_urls:
-      - https://www.puthiyathalaimurai.com/rss
+    rss_urls: []
     section_urls:
       - https://www.puthiyathalaimurai.com/
-    legal_notes: Pending RSS verification.
+    legal_notes: 'puthiyathalaimurai.com/rss returns 404 — site is JS-rendered, no public feed. Use sitemap or Media Cloud later.'
 
   - name: Sun News (Tamil)
     language_hint: ta

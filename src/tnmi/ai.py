@@ -74,6 +74,116 @@ def _looks_like_listing_page(title: str, body: str) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# Tamil Nadu relevance gate
+# ---------------------------------------------------------------------------
+# The briefing covers Tamil Nadu public affairs only. National-only / Bollywood
+# / cricket / Karnataka-only / Kerala-only / US news has no place on the
+# chief's dashboard. We classify an article as "not about TN" when NONE of
+# these tokens appears in the title or body — the dashboard then hides it the
+# same way it hides RSS shells.
+#
+# Set is intentionally generous (includes all 38 districts, top politicians,
+# party names, TN-specific institutions) so we never miss a real TN story.
+
+_TN_KEYWORDS_EN = (
+    # State name + obvious umbrella terms
+    "tamil nadu", "tamilnadu", "tamil-nadu", " tn ", "tn govt", "tn government",
+    "tamilian", "dravidian", "tamil ",
+    # 38 districts (lower-cased; common alt spellings included)
+    "chennai", "coimbatore", "kovai", "madurai", "tiruchirappalli", "trichy",
+    "salem", "tirunelveli", "vellore", "erode", "thoothukudi", "tuticorin",
+    "kanyakumari", "kanniyakumari", "thanjavur", "tanjore", "dindigul",
+    "tiruvallur", "tiruvarur", "nagapattinam", "mayiladuthurai", "cuddalore",
+    "villupuram", "kallakurichi", "kanchipuram", "krishnagiri", "dharmapuri",
+    "namakkal", "karur", "pudukkottai", "ramanathapuram", "ariyalur", "perambalur",
+    "sivaganga", "theni", "virudhunagar", "nilgiris", "ooty", "tiruppur",
+    "tirupattur", "ranipet", "chengalpattu", "tenkasi",
+    # TN political parties + leaders
+    "dmk", "aiadmk", "tvk", "ntk", "pmk", "vck", "mdmk",
+    "stalin", "udhayanidhi", "edappadi", "palaniswami",
+    "anbumani", "ramadoss", "vijay ", "thirumavalavan", "vaiko",
+    "kanimozhi", "tamilisai", "annamalai", "rajinikanth", "kamal haasan",
+    # TN-specific institutions / topics
+    "cauvery", "kaveri", "mullaperiyar", "tn assembly",
+    "tamil nadu legislative", "marina beach", "chennai port", "kalaignar",
+)
+
+_TN_KEYWORDS_TA = (
+    # State
+    "தமிழ்நாடு", "தமிழக", "தமிழகம்", "தமிழன்", "தமிழ்",
+    # Major districts
+    "சென்னை", "கோவை", "கோயம்புத்தூர்", "மதுரை", "திருச்சி", "திருச்சிராப்பள்ளி",
+    "சேலம்", "திருநெல்வேலி", "வேலூர்", "ஈரோடு", "தூத்துக்குடி", "கன்னியாகுமரி",
+    "தஞ்சை", "தஞ்சாவூர்", "திண்டுக்கல்", "திருவள்ளூர்", "திருவாரூர்",
+    "நாகப்பட்டினம்", "மயிலாடுதுறை", "கடலூர்", "விழுப்புரம்", "கல்லக்குறிச்சி",
+    "காஞ்சிபுரம்", "கிருஷ்ணகிரி", "தர்மபுரி", "நாமக்கல்", "கரூர்",
+    "புதுக்கோட்டை", "ராமநாதபுரம்", "அரியலூர்", "பெரம்பலூர்", "சிவகங்கை",
+    "தேனி", "விருதுநகர்", "நீலகிரி", "ஊட்டி", "திருப்பூர்", "திருப்பத்தூர்",
+    "ராணிப்பேட்டை", "செங்கல்பட்டு", "தென்காசி",
+    # Parties + leaders
+    "திமுக", "தி.மு.க", "அதிமுக", "அ.தி.மு.க", "தவெக", "தமிழக வெற்றி",
+    "நாம் தமிழர்", "ந.த.க", "பாமக", "வி.சி.க", "ம.தி.மு.க",
+    "ஸ்டாலின்", "முதலமைச்சர்", "உதயநிதி", "எடப்பாடியார்", "பழனிசாமி",
+    "அன்புமணி", "ராமதாஸ்", "விஜய்", "தலைவர் விஜய்", "திருமாவளவன்",
+    "வைகோ", "கனிமொழி", "தமிழிசை", "அண்ணாமலை", "ரஜினிகாந்த்", "கமல் ஹாசன்",
+    # TN-specific affairs / institutions
+    "காவிரி", "கூவம்", "முல்லைப்பெரியாறு", "மரீனா", "சென்னை துறைமுகம்",
+    "தமிழ்நாடு சட்டப்பேரவை", "சட்டப்பேரவை", "தமிழ் மொழி", "கலைஞர்",
+)
+
+
+def _not_relevant_analysis(*, title: str, evidence_quote: str, issue_category: str) -> AIAnalysis:
+    """Construct a clean 'not relevant to TVK briefing' AIAnalysis. Used by
+    the listing-page gate and the Tamil-Nadu-relevance gate so both produce
+    identically-shaped records that the dashboard hides via
+    government_relevance == 'none'."""
+    return AIAnalysis(
+        government_relevance=GovernmentRelevance.NONE,
+        stance_toward_government=Stance.NEUTRAL,
+        sentiment=Sentiment.NEUTRAL,
+        target="Not applicable",
+        department="general",
+        district="unspecified",
+        scheme=None,
+        topic=title or "out-of-scope",
+        issue_category=issue_category,
+        severity=Severity.LOW,
+        summary_original=_truncate(evidence_quote or "", 200),
+        summary_english="",
+        party_action="",
+        people_impact="",
+        root_cause="",
+        recommended_step="",
+        positive_points=[],
+        negative_points=[],
+        evidence_quotes_original=[_truncate(evidence_quote, 200)] if evidence_quote else [],
+        evidence_quotes_english=[],
+        confidence=0.25,
+        needs_human_review=False,
+    )
+
+
+def _looks_like_tn_content(title: str, body: str) -> bool:
+    """True if the article references Tamil Nadu — state name, any of the 38
+    districts, TN political parties or leaders, or TN-specific institutions.
+
+    Heuristic only; OpenAI is the ground truth when available. We accept
+    false positives (article mentions Chennai in passing) because over-
+    including is cheaper than dropping a real TN story.
+    """
+    if not title and not body:
+        return False
+    haystack = f"{title}\n{body}".lower()
+    if any(token in haystack for token in _TN_KEYWORDS_EN):
+        return True
+    if any(token in body for token in _TN_KEYWORDS_TA):
+        return True
+    if any(token in title for token in _TN_KEYWORDS_TA):
+        return True
+    return False
+
+
 class MockAIAnalyzer:
     model_name = "mock"
 
@@ -87,29 +197,21 @@ class MockAIAnalyzer:
         # not-relevant so the briefing dashboard can skip them.
         if _looks_like_listing_page(title, body):
             evidence_quote = _first_sentence(body) or title
-            return AIAnalysis(
-                government_relevance=GovernmentRelevance.NONE,
-                stance_toward_government=Stance.NEUTRAL,
-                sentiment=Sentiment.NEUTRAL,
-                target="Not applicable",
-                department="general",
-                district="unspecified",
-                scheme=None,
-                topic=title or "news shell",
+            return _not_relevant_analysis(
+                title=title,
+                evidence_quote=evidence_quote,
                 issue_category="listing",
-                severity=Severity.LOW,
-                summary_original=_truncate(evidence_quote or "", 200),
-                summary_english="",
-                party_action="",
-                people_impact="",
-                root_cause="",
-                recommended_step="",
-                positive_points=[],
-                negative_points=[],
-                evidence_quotes_original=[_truncate(evidence_quote, 200)] if evidence_quote else [],
-                evidence_quotes_english=[],
-                confidence=0.25,
-                needs_human_review=False,
+            )
+
+        # Tamil Nadu relevance gate: if the article never references TN
+        # (state, any district, a TN party/leader, or a TN-specific topic),
+        # it's irrelevant to the chief's briefing — skip it.
+        if not _looks_like_tn_content(title, body):
+            evidence_quote = _first_sentence(body) or title
+            return _not_relevant_analysis(
+                title=title,
+                evidence_quote=evidence_quote,
+                issue_category="out-of-scope",
             )
 
         is_party = any(k in text for k in _TVK_KEYWORDS_EN) or any(k in body for k in _TVK_KEYWORDS_TA)
@@ -292,8 +394,18 @@ Tone rules:
 - If the article makes an allegation or sensitive claim, set
   needs_human_review = true.
 - Populate scheme only when a named government scheme is explicitly mentioned.
-- If the article has no relevance to TVK, government, or Tamil-Nadu public
-  affairs, set government_relevance = "none".
+
+Tamil Nadu relevance gate (IMPORTANT):
+- This briefing is for the Tamil Nadu party leadership only.
+- An article is in scope only when it materially relates to Tamil Nadu —
+  the state, any of its 38 districts, a TN political party/leader, a TN
+  public matter, or a national story where TN involvement is central.
+- An article is OUT OF SCOPE if it is purely national, Bollywood, cricket
+  (without TN angle), other states (Karnataka / Kerala / Maharashtra / Delhi /
+  US / international) and does not concern TN.
+- For OUT OF SCOPE articles set government_relevance = "none" and leave
+  every briefing field ("party_action", "people_impact", "root_cause",
+  "recommended_step") empty. The dashboard hides relevance=none rows.
 
 Field guidance:
 - summary_english: one factual sentence on WHAT happened. ≤ 22 words.

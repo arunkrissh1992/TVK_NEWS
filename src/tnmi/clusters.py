@@ -257,6 +257,289 @@ def find_recurring_themes(
 
 
 # ---------------------------------------------------------------------------
+# Deduplicated briefing — every article is placed in exactly one cluster
+# (singletons included) so the narrative grid can render one card per
+# narrative instead of one card per article.
+# ---------------------------------------------------------------------------
+
+
+def cluster_all_articles_for_briefing(
+    session: Session,
+    *,
+    similarity_threshold: float = 0.85,
+    source_type: str = "news",
+) -> list["ArticleCluster"]:
+    """Return a complete partition of articles — every article belongs to
+    exactly one cluster. Multi-source clusters collapse duplicate coverage
+    into one card; unique articles become singleton clusters.
+
+    Articles without embeddings still appear as singletons so they're never
+    silently dropped from the briefing.
+    """
+    vectors = _load_article_vectors(session, source_type=source_type)
+    analyses = _load_latest_analyses(session, raw_item_ids=[v.raw_item_id for v in vectors])
+
+    clusters: list[ArticleCluster] = []
+    raw_ids_with_vector: set[int] = set()
+
+    # Greedy nearest-cluster assignment, same heuristic the recurring-themes
+    # panel uses — but here we keep singletons too.
+    for vector in vectors:
+        raw_ids_with_vector.add(vector.raw_item_id)
+        if not any(vector.embedding):
+            # Degenerate empty vector — keep as its own cluster.
+            new_cluster = _new_article_cluster(vector, analyses.get(vector.raw_item_id))
+            clusters.append(new_cluster)
+            continue
+
+        best_cluster: ArticleCluster | None = None
+        best_sim = 0.0
+        for cluster in clusters:
+            if not cluster.centroid:
+                continue
+            sim = _cosine_similarity(vector.embedding, cluster.centroid)
+            if sim >= similarity_threshold and sim > best_sim:
+                best_cluster = cluster
+                best_sim = sim
+        if best_cluster is not None:
+            _add_member_to_article_cluster(
+                cluster=best_cluster,
+                vector=vector,
+                similarity=best_sim,
+                analysis=analyses.get(vector.raw_item_id),
+            )
+        else:
+            clusters.append(_new_article_cluster(vector, analyses.get(vector.raw_item_id)))
+
+    # Pick up articles that have an analysis but NO chunk embedding yet
+    # (e.g. ingested by Pull Latest but build_rag_index hasn't been re-run).
+    # They become singleton clusters so the dashboard never loses them.
+    extras = session.scalars(
+        select(RawItemRecord)
+        .where(RawItemRecord.source_type == source_type)
+        .order_by(RawItemRecord.ingested_at.desc(), RawItemRecord.id.desc())
+    ).all()
+    extra_ids = [raw.id for raw in extras if raw.id not in raw_ids_with_vector]
+    if not extra_ids:
+        # No extras to process.
+        clusters.sort(
+            key=lambda c: (
+                -c.distinct_source_count,
+                -c.size,
+                -(_utc_timestamp(c.latest_ingested_at)),
+                c.representative_id,
+            )
+        )
+        return clusters
+
+    extra_analyses = _load_latest_analyses(session, raw_item_ids=extra_ids)
+    raw_by_id = {raw.id: raw for raw in extras}
+    for raw_id in extra_ids:
+        analysis = extra_analyses.get(raw_id)
+        if analysis is None:
+            continue
+        if (analysis.government_relevance or "").lower() == "none":
+            continue
+        raw = raw_by_id[raw_id]
+        clusters.append(
+            ArticleCluster(
+                representative_id=raw.id,
+                members=[
+                    ArticleMember(
+                        raw_item_id=raw.id,
+                        analysis_id=analysis.id,
+                        source_name=raw.source_name,
+                        source_url=raw.source_url,
+                        title=raw.title,
+                        stance=analysis.stance_toward_government,
+                        relevance=analysis.government_relevance,
+                        summary_english=analysis.summary_english,
+                        summary_original=analysis.summary_original,
+                        party_action=analysis.party_action,
+                        people_impact=analysis.people_impact,
+                        root_cause=analysis.root_cause,
+                        recommended_step=analysis.recommended_step,
+                        evidence_quotes_original=list(analysis.evidence_quotes_original or []),
+                        department=analysis.department,
+                        district=analysis.district,
+                        needs_human_review=analysis.needs_human_review,
+                        published_at=raw.published_at,
+                        ingested_at=raw.ingested_at,
+                        similarity=1.0,
+                        model_name=analysis.model_name or "",
+                        prompt_version=analysis.prompt_version or "",
+                    )
+                ],
+                centroid=[],
+            )
+        )
+
+    # Order clusters: biggest first (multi-source duplicates surface), then
+    # by recency of the latest member.
+    clusters.sort(
+        key=lambda c: (
+            -c.distinct_source_count,
+            -c.size,
+            -(_utc_timestamp(c.latest_ingested_at)),
+            c.representative_id,
+        )
+    )
+    return clusters
+
+
+@dataclass
+class ArticleMember:
+    raw_item_id: int
+    analysis_id: int
+    source_name: str
+    source_url: str
+    title: str | None
+    stance: str | None
+    relevance: str | None
+    summary_english: str
+    summary_original: str
+    party_action: str
+    people_impact: str
+    root_cause: str
+    recommended_step: str
+    evidence_quotes_original: list[str]
+    department: str
+    district: str
+    needs_human_review: bool
+    published_at: datetime | None
+    ingested_at: datetime | None
+    similarity: float
+    model_name: str = ""
+    prompt_version: str = ""
+
+
+@dataclass
+class ArticleCluster:
+    representative_id: int
+    members: list[ArticleMember] = field(default_factory=list)
+    centroid: list[float] = field(default_factory=list)
+
+    @property
+    def size(self) -> int:
+        return len(self.members)
+
+    @property
+    def distinct_sources(self) -> list[str]:
+        seen: list[str] = []
+        for m in self.members:
+            if m.source_name not in seen:
+                seen.append(m.source_name)
+        return seen
+
+    @property
+    def distinct_source_count(self) -> int:
+        return len(self.distinct_sources)
+
+    @property
+    def representative(self) -> ArticleMember:
+        # Prefer high-relevance, then needs_human_review (interesting), then
+        # the longest title (likely the more detailed article).
+        return max(
+            self.members,
+            key=lambda m: (
+                _relevance_rank(m.relevance),
+                int(m.needs_human_review),
+                len(m.title or ""),
+            ),
+        )
+
+    @property
+    def dominant_stance(self) -> str:
+        counts = Counter(m.stance for m in self.members if m.stance)
+        if not counts:
+            return "neutral"
+        return counts.most_common(1)[0][0]
+
+    @property
+    def stance_breakdown(self) -> dict[str, int]:
+        return dict(Counter(m.stance for m in self.members if m.stance))
+
+    @property
+    def latest_ingested_at(self) -> datetime | None:
+        stamps = [m.ingested_at for m in self.members if m.ingested_at]
+        return max(stamps, key=_utc_sort_key) if stamps else None
+
+    @property
+    def latest_published_at(self) -> datetime | None:
+        stamps = [m.published_at for m in self.members if m.published_at]
+        return max(stamps, key=_utc_sort_key) if stamps else None
+
+
+_RELEVANCE_ORDER = {"high": 4, "medium": 3, "low": 2, "none": 1}
+
+
+def _relevance_rank(relevance: str | None) -> int:
+    return _RELEVANCE_ORDER.get((relevance or "").lower(), 0)
+
+
+def _new_article_cluster(vector: _ArticleVector, analysis: AIAnalysisRecord | None) -> "ArticleCluster":
+    member = _build_article_member(vector=vector, analysis=analysis, similarity=1.0)
+    return ArticleCluster(
+        representative_id=vector.raw_item_id,
+        members=[member],
+        centroid=list(vector.embedding),
+    )
+
+
+def _add_member_to_article_cluster(
+    *,
+    cluster: "ArticleCluster",
+    vector: _ArticleVector,
+    similarity: float,
+    analysis: AIAnalysisRecord | None,
+) -> None:
+    cluster.members.append(
+        _build_article_member(vector=vector, analysis=analysis, similarity=similarity)
+    )
+    if cluster.centroid:
+        weight_existing = (cluster.size - 1) / cluster.size
+        weight_new = 1 / cluster.size
+        cluster.centroid = [
+            existing * weight_existing + new * weight_new
+            for existing, new in zip(cluster.centroid, vector.embedding, strict=True)
+        ]
+
+
+def _build_article_member(
+    *,
+    vector: _ArticleVector,
+    analysis: AIAnalysisRecord | None,
+    similarity: float,
+) -> ArticleMember:
+    rel = (analysis.government_relevance if analysis else None) or ""
+    stance = (analysis.stance_toward_government if analysis else None) or ""
+    return ArticleMember(
+        raw_item_id=vector.raw_item_id,
+        analysis_id=(analysis.id if analysis else 0),
+        source_name=vector.source_name,
+        source_url=getattr(vector, "source_url", "") or "",
+        title=vector.title,
+        stance=stance or None,
+        relevance=rel or None,
+        summary_english=(analysis.summary_english if analysis else "") or "",
+        summary_original=(analysis.summary_original if analysis else "") or "",
+        party_action=(analysis.party_action if analysis else "") or "",
+        people_impact=(analysis.people_impact if analysis else "") or "",
+        root_cause=(analysis.root_cause if analysis else "") or "",
+        recommended_step=(analysis.recommended_step if analysis else "") or "",
+        evidence_quotes_original=list((analysis.evidence_quotes_original or []) if analysis else []),
+        department=(analysis.department if analysis else "") or "",
+        district=(analysis.district if analysis else "") or "",
+        needs_human_review=bool(analysis.needs_human_review) if analysis else False,
+        published_at=vector.published_at,
+        ingested_at=None,
+        similarity=similarity,
+        model_name=(analysis.model_name if analysis else "") or "",
+        prompt_version=(analysis.prompt_version if analysis else "") or "",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
 
@@ -265,6 +548,7 @@ def find_recurring_themes(
 class _ArticleVector:
     raw_item_id: int
     source_name: str
+    source_url: str
     title: str | None
     published_at: datetime | None
     embedding: list[float]
@@ -276,6 +560,7 @@ def _load_article_vectors(session: Session, *, source_type: str) -> list[_Articl
         select(
             RawItemRecord.id,
             RawItemRecord.source_name,
+            RawItemRecord.source_url,
             RawItemRecord.title,
             RawItemRecord.published_at,
             ChunkEmbeddingRecord.embedding,
@@ -289,7 +574,7 @@ def _load_article_vectors(session: Session, *, source_type: str) -> list[_Articl
 
     seen: set[int] = set()
     vectors: list[_ArticleVector] = []
-    for raw_id, source_name, title, published_at, embedding in rows:
+    for raw_id, source_name, source_url, title, published_at, embedding in rows:
         if raw_id in seen:
             continue
         if not embedding:
@@ -299,6 +584,7 @@ def _load_article_vectors(session: Session, *, source_type: str) -> list[_Articl
             _ArticleVector(
                 raw_item_id=raw_id,
                 source_name=source_name,
+                source_url=source_url,
                 title=title,
                 published_at=published_at,
                 embedding=list(embedding),

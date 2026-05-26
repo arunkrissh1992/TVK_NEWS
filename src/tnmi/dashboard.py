@@ -9,7 +9,14 @@ from sqlalchemy.orm import Session
 
 from functools import lru_cache
 
-from tnmi.clusters import RecurringThemesReport, ThemeCluster, find_recurring_themes
+from tnmi.clusters import (
+    ArticleCluster,
+    ArticleMember,
+    RecurringThemesReport,
+    ThemeCluster,
+    cluster_all_articles_for_briefing,
+    find_recurring_themes,
+)
 from tnmi.gdelt import (
     GdeltCrossReference,
     build_query_for_theme,
@@ -200,71 +207,95 @@ def list_review_queue(session: Session, *, limit: int = 50) -> list[dict[str, An
 
 
 def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, Any]]:
-    bounded_limit = max(1, min(limit, 500))
-    rows = session.execute(
-        select(RawItemRecord, AIAnalysisRecord)
-        .join(AIAnalysisRecord, AIAnalysisRecord.raw_item_id == RawItemRecord.id)
-        .where(RawItemRecord.source_type == "news")
-        .order_by(
-            RawItemRecord.ingested_at.desc(),
-            RawItemRecord.id.desc(),
-            case((AIAnalysisRecord.model_name == "mock", 0), else_=1).desc(),
-            AIAnalysisRecord.created_at.desc(),
-            AIAnalysisRecord.id.desc(),
-        )
-    ).all()
+    """Return one card payload per *narrative* (not per article).
 
-    latest_by_raw_item: dict[int, dict[str, Any]] = {}
-    for item, analysis in rows:
-        if item.id in latest_by_raw_item:
+    Articles covering the same story across multiple newspapers collapse
+    into a single card whose ``sources`` list names every contributing
+    newspaper. Unique stories become singleton clusters that look identical
+    to the previous "one card per article" layout.
+
+    The card's summary, headline, briefing lines and evidence are taken
+    from the cluster's "representative" article — the highest-relevance
+    member, preferring those flagged for human review and longer titles.
+    """
+    bounded_limit = max(1, min(limit, 500))
+    clusters = cluster_all_articles_for_briefing(session)
+
+    payloads: list[dict[str, Any]] = []
+    for cluster in clusters:
+        rep = cluster.representative
+        if (rep.relevance or "").lower() == "none":
             continue
-        # Skip listing/RSS-shell articles. The analyzer marks them
-        # government_relevance == "none" so the briefing stays focused on
-        # actual stories about TVK / the government / public matters.
-        if (analysis.government_relevance or "").lower() == "none":
-            continue
-        latest_by_raw_item[item.id] = {
-            "raw_item_id": item.id,
-            "analysis_id": analysis.id,
-            "source_name": item.source_name,
-            "source_url": item.source_url,
-            "ingested_at": item.ingested_at,
-            "title": item.title,
-            "published_at": item.published_at,
-            "language": item.language,
-                "stance": analysis.stance_toward_government,
-                "stance_label": _stance_label(analysis.stance_toward_government),
-                "portrayal_kind": _portrayal_kind(analysis.stance_toward_government),
-                "severity": analysis.severity,
-                "target": analysis.target,
-                "department": analysis.department,
-                "district": analysis.district,
-                "summary_original": analysis.summary_original,
-                "summary_english": analysis.summary_english,
-                "summary": analysis.summary_english or analysis.summary_original,
-                "party_action": (analysis.party_action or "").strip(),
-                "people_impact": (analysis.people_impact or "").strip(),
-                "root_cause": (analysis.root_cause or "").strip(),
-                "recommended_step": (analysis.recommended_step or "").strip(),
-                "positive_points": _display_list(analysis.positive_points),
-                "negative_points": _display_list(analysis.negative_points),
-                "evidence_original": _display_list(
-                    analysis.evidence_quotes_original,
-                    fallback=analysis.summary_original,
-                ),
-                "evidence_english": _display_list(
-                    analysis.evidence_quotes_english,
-                    fallback=analysis.summary_english,
-                ),
-                "issue_category": analysis.issue_category,
-                "confidence": analysis.confidence,
-                "needs_human_review": analysis.needs_human_review,
-                "model_name": analysis.model_name,
-            "prompt_version": analysis.prompt_version,
-        }
-        if len(latest_by_raw_item) >= bounded_limit:
+        rep_evidence = _display_list(rep.evidence_quotes_original, fallback=rep.summary_original)
+
+        # Source chips: one per distinct newspaper, in cluster-member order.
+        sources: list[dict[str, Any]] = []
+        seen_names: set[str] = set()
+        for member in cluster.members:
+            if member.source_name in seen_names:
+                continue
+            seen_names.add(member.source_name)
+            sources.append(
+                {
+                    "name": member.source_name,
+                    "stance": member.stance,
+                    "stance_label": _stance_label(member.stance),
+                    "url": member.source_url,
+                    "raw_item_id": member.raw_item_id,
+                    "analysis_id": member.analysis_id,
+                }
+            )
+
+        stance = cluster.dominant_stance
+
+        payloads.append(
+            {
+                "raw_item_id": rep.raw_item_id,
+                "analysis_id": rep.analysis_id,
+                "source_name": rep.source_name,
+                "source_url": rep.source_url,
+                "ingested_at": cluster.latest_ingested_at,
+                "title": rep.title,
+                "published_at": cluster.latest_published_at or rep.published_at,
+                "language": "ta",  # rep language not tracked — Tamil-default
+                "stance": stance,
+                "stance_label": _stance_label(stance),
+                "portrayal_kind": _portrayal_kind(stance),
+                "stance_breakdown": cluster.stance_breakdown,
+                "severity": None,
+                "target": None,
+                "department": rep.department,
+                "district": rep.district,
+                "summary_original": rep.summary_original,
+                "summary_english": rep.summary_english,
+                "summary": rep.summary_english or rep.summary_original,
+                "party_action": (rep.party_action or "").strip(),
+                "people_impact": (rep.people_impact or "").strip(),
+                "root_cause": (rep.root_cause or "").strip(),
+                "recommended_step": (rep.recommended_step or "").strip(),
+                "positive_points": [],
+                "negative_points": [],
+                "evidence_original": rep_evidence,
+                "evidence_english": [],
+                "issue_category": None,
+                "confidence": None,
+                "needs_human_review": any(m.needs_human_review for m in cluster.members),
+                "model_name": rep.model_name or None,
+                "prompt_version": rep.prompt_version or None,
+                # Cluster metadata for the new multi-source UI.
+                "cluster_size": cluster.size,
+                "sources": sources,
+                "source_count": cluster.distinct_source_count,
+                "member_ids": [m.raw_item_id for m in cluster.members],
+                # Only show the "N newspapers" badge when multiple DISTINCT
+                # newspapers cover the same story — two near-duplicate articles
+                # from one paper shouldn't claim cross-source coverage.
+                "is_consolidated": cluster.distinct_source_count > 1,
+            }
+        )
+        if len(payloads) >= bounded_limit:
             break
-    return list(latest_by_raw_item.values())
+    return payloads
 
 
 def list_recurring_themes(

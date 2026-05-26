@@ -37,7 +37,13 @@ import logging
 import re
 from typing import Any
 
-from tnmi.ai import _first_sentence, _truncate, _looks_like_listing_page
+from tnmi.ai import (
+    _first_sentence,
+    _looks_like_listing_page,
+    _looks_like_tn_content,
+    _not_relevant_analysis,
+    _truncate,
+)
 from tnmi.contracts import (
     AIAnalysis,
     GovernmentRelevance,
@@ -206,35 +212,19 @@ class LocalTamilAnalyzer:
         self._embedding_ready = True
 
     def analyze(self, item: NormalizedItem) -> AIAnalysis:
-        # Reuse the listing-page gate from the mock analyser — same UX
-        # everywhere: shells never get a confident stance.
+        # Same gates as the mock analyser — shells and out-of-scope articles
+        # never get a confident stance and are hidden by the dashboard.
         title = (item.title or "").strip()
         body = (item.clean_text_original or "").strip()
         if _looks_like_listing_page(title, body):
             evidence = _first_sentence(body) or title
-            return AIAnalysis(
-                government_relevance=GovernmentRelevance.NONE,
-                stance_toward_government=Stance.NEUTRAL,
-                sentiment=Sentiment.NEUTRAL,
-                target="Not applicable",
-                department="general",
-                district="unspecified",
-                scheme=None,
-                topic=title or "news shell",
-                issue_category="listing",
-                severity=Severity.LOW,
-                summary_original=_truncate(evidence, 200),
-                summary_english="",
-                party_action="",
-                people_impact="",
-                root_cause="",
-                recommended_step="",
-                positive_points=[],
-                negative_points=[],
-                evidence_quotes_original=[_truncate(evidence, 200)] if evidence else [],
-                evidence_quotes_english=[],
-                confidence=0.3,
-                needs_human_review=False,
+            return _not_relevant_analysis(
+                title=title, evidence_quote=evidence, issue_category="listing",
+            )
+        if not _looks_like_tn_content(title, body):
+            evidence = _first_sentence(body) or title
+            return _not_relevant_analysis(
+                title=title, evidence_quote=evidence, issue_category="out-of-scope",
             )
 
         # Lazy-load the embedding model on first real article. If it fails

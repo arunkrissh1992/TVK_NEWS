@@ -1250,6 +1250,57 @@ body:not(.view-table) .narrative-table-wrap { display: none; }
 .byline-source { color: var(--ink); }
 .byline-sep { color: var(--gray-300); }
 
+.byline-source--multi {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border-radius: var(--radius-pill);
+  letter-spacing: 0.06em;
+}
+.byline-source--multi i { font-size: 11px; }
+
+.card-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card-source-chip a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  background: var(--surface-subtle);
+  color: var(--muted-strong);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-9);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+.card-source-chip a i { font-size: 10px; color: var(--gray-400); }
+
+.card-source-chip a:hover {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border-color: var(--accent);
+  text-decoration: none;
+}
+
+.card-source-chip--positive a { border-left: 2px solid var(--success-500); }
+.card-source-chip--negative a { border-left: 2px solid var(--error-500); }
+.card-source-chip--mixed a    { border-left: 2px solid var(--warning-500); }
+.card-source-chip--neutral a  { border-left: 2px solid var(--gray-300); }
+
 .byline-stance { color: var(--muted); }
 .narrative-card.positive .byline-stance { color: var(--success); }
 .narrative-card.negative .byline-stance { color: var(--danger); }

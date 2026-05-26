@@ -278,10 +278,29 @@
               data-district="{{ item.district }}"
             >
               <header class="card-byline">
-                <span class="byline-source">{{ item.source_name }}</span>
+                {% if item.is_consolidated %}
+                  <span class="byline-source byline-source--multi" title="Covered by {{ item.source_count }} newspapers">
+                    <i class="fa-light fa-layer-group" aria-hidden="true"></i>
+                    {{ item.source_count }} newspapers
+                  </span>
+                {% else %}
+                  <span class="byline-source">{{ item.source_name }}</span>
+                {% endif %}
                 <span class="byline-sep" aria-hidden="true">&middot;</span>
                 <span class="byline-stance">{{ item.stance_label.split(' / ')[0] }}</span>
               </header>
+              {% if item.is_consolidated %}
+                <ul class="card-sources" aria-label="Newspapers covering this story">
+                  {% for src in item.sources %}
+                    <li class="card-source-chip card-source-chip--{{ src.stance or 'neutral' }}">
+                      <a href="{{ src.url }}" rel="noreferrer" target="_blank" title="{{ src.stance_label.split(' / ')[0] }} portrayal in {{ src.name }}">
+                        <i class="fa-light fa-newspaper" aria-hidden="true"></i>
+                        {{ src.name }}
+                      </a>
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
 
               <h3 class="card-headline">{{ item.title or "Untitled item" }}</h3>
 
