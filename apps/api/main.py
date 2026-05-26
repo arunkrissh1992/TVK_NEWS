@@ -362,7 +362,10 @@ def _build_news_analyzer(settings: Settings):
     try:
         from tnmi.local_llm import GemmaAnalyzer
 
-        gemma_tier = GemmaAnalyzer()
+        gemma_tier = GemmaAnalyzer(
+            model=settings.ollama_model,
+            host=settings.ollama_host,
+        )
     except Exception:
         traceback.print_exc()
 

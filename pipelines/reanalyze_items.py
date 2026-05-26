@@ -56,7 +56,11 @@ def build_analyzer(
         # Lazy import — keeps `ollama` an optional dependency.
         from tnmi.local_llm import GemmaAnalyzer
 
-        return GemmaAnalyzer(timeout=240.0)
+        return GemmaAnalyzer(
+            model=settings.ollama_model,
+            host=settings.ollama_host,
+            timeout=240.0,
+        )
     if local_tamil:
         return LocalTamilAnalyzer()
     if mock_ai:

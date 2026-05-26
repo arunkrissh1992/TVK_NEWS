@@ -16,7 +16,7 @@ from tnmi.contracts import (
 )
 
 
-PROMPT_VERSION = "chief-briefing-v5"
+PROMPT_VERSION = "chief-briefing-v6"
 
 
 class AIAnalysisError(RuntimeError):

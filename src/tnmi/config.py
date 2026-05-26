@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     operator_api_token: str | None = None
     rag_chunk_max_chars: int = 1200
     rag_chunk_overlap_chars: int = 200
+    # Ollama analyser config — local CPU model by default. Set to a
+    # -cloud tag (e.g. "gemma3:27b-cloud") after `ollama signin` for
+    # the cloud-GPU path: 20× faster, larger/better model.
+    ollama_host: str = "http://localhost:11434"
+    ollama_model: str = "gemma2:2b"
 
     model_config = SettingsConfigDict(
         env_file=".env",
