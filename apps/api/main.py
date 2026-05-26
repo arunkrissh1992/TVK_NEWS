@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 import traceback
 from datetime import datetime, timezone
@@ -20,6 +21,7 @@ from tnmi.contracts import ReviewDecisionCreate
 from tnmi.dashboard import (
     get_dashboard_summary,
     get_dashboard_trends,
+    invalidate_briefing_cache,
     list_latest_items,
     list_recurring_themes,
     list_review_queue,
@@ -376,6 +378,8 @@ def _run_ingest_job(trigger: str) -> None:
             analyzer=analyzer,
         )
         result = pipeline.run(sources)
+        # Fresh data means the cached briefing payload is stale.
+        invalidate_briefing_cache()
         with _INGEST_LOCK:
             _INGEST_STATE.update(
                 status="finished",
@@ -410,7 +414,14 @@ def dashboard_page(request: Request) -> HTMLResponse:
         # Render every article so the KPI/filter counts above (which are
         # computed across the full DB) match the cards filtered client-side.
         latest_items = list_latest_items(session, limit=200)
-        themes = list_recurring_themes(session, limit=4)
+        # GDELT cross-reference is opt-in — it adds 6-12 seconds to page load
+        # when GDELT throttles or times out. Operators who want it can enable
+        # via TNMI_ENABLE_GLOBAL_CROSSREF=1.
+        themes = list_recurring_themes(
+            session,
+            limit=4,
+            cross_reference_global=bool(int(os.environ.get("TNMI_ENABLE_GLOBAL_CROSSREF", "0"))),
+        )
         trends = get_dashboard_trends(session, days=14)
     settings_status = _settings_status(settings)
     report_files = _list_report_files(Path(settings.report_output_dir))

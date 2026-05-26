@@ -206,6 +206,44 @@ def list_review_queue(session: Session, *, limit: int = 50) -> list[dict[str, An
     return queue
 
 
+# Small TTL caches. Clustering all articles is ~10s on the demo DB; nothing
+# in the result depends on the request, so a per-process cache shared across
+# dashboard hits is correct as long as we invalidate after each ingest.
+import time as _time
+
+_BRIEFING_CACHE: dict[str, Any] = {"timestamp": 0.0, "payload": None, "limit": 0}
+_THEMES_CACHE: dict[str, Any] = {}  # (limit, cross_ref) -> {timestamp, payload}
+_CACHE_TTL_SECONDS = 60.0
+
+
+def _briefing_cache_get(limit: int) -> list[dict[str, Any]] | None:
+    now = _time.time()
+    if (
+        _BRIEFING_CACHE["payload"] is not None
+        and _BRIEFING_CACHE["limit"] >= limit
+        and (now - _BRIEFING_CACHE["timestamp"]) < _CACHE_TTL_SECONDS
+    ):
+        return _BRIEFING_CACHE["payload"][:limit]
+    return None
+
+
+def _briefing_cache_set(payload: list[dict[str, Any]], limit: int) -> None:
+    _BRIEFING_CACHE.update(timestamp=_time.time(), payload=payload, limit=limit)
+
+
+def _themes_cache_get(key: tuple[int, bool]) -> dict[str, Any] | None:
+    entry = _THEMES_CACHE.get(key)
+    if not entry:
+        return None
+    if (_time.time() - entry["timestamp"]) < _CACHE_TTL_SECONDS:
+        return entry["payload"]
+    return None
+
+
+def _themes_cache_set(key: tuple[int, bool], payload: dict[str, Any]) -> None:
+    _THEMES_CACHE[key] = {"timestamp": _time.time(), "payload": payload}
+
+
 def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, Any]]:
     """Return one card payload per *narrative* (not per article).
 
@@ -219,6 +257,9 @@ def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, An
     member, preferring those flagged for human review and longer titles.
     """
     bounded_limit = max(1, min(limit, 500))
+    cached = _briefing_cache_get(bounded_limit)
+    if cached is not None:
+        return cached
     clusters = cluster_all_articles_for_briefing(session)
 
     payloads: list[dict[str, Any]] = []
@@ -295,7 +336,16 @@ def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, An
         )
         if len(payloads) >= bounded_limit:
             break
+    _briefing_cache_set(payloads, bounded_limit)
     return payloads
+
+
+def invalidate_briefing_cache() -> None:
+    """Called after an ingest writes new rows so the next dashboard hit
+    rebuilds the briefing instead of serving stale data. Clears both the
+    narrative-card cache and the recurring-themes cache."""
+    _BRIEFING_CACHE.update(timestamp=0.0, payload=None, limit=0)
+    _THEMES_CACHE.clear()
 
 
 def list_recurring_themes(
@@ -312,6 +362,11 @@ def list_recurring_themes(
     theme to surface a global-signal badge. Calls are cached per process so
     a dashboard reload doesn't re-fetch.
     """
+    cache_key = (limit, bool(cross_reference_global))
+    cached = _themes_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     report: RecurringThemesReport = find_recurring_themes(
         session,
         similarity_threshold=similarity_threshold,
@@ -328,12 +383,14 @@ def list_recurring_themes(
             payload["global_signal"] = None
         serialised.append(payload)
 
-    return {
+    payload = {
         "has_themes": report.has_themes,
         "diagnostic": report.diagnostic,
         "total_articles_indexed": report.total_articles_indexed,
         "themes": serialised,
     }
+    _themes_cache_set(cache_key, payload)
+    return payload
 
 
 @lru_cache(maxsize=256)
