@@ -16,7 +16,7 @@ from tnmi.contracts import (
 )
 
 
-PROMPT_VERSION = "chief-briefing-v3"
+PROMPT_VERSION = "chief-briefing-v5"
 
 
 class AIAnalysisError(RuntimeError):
@@ -47,30 +47,64 @@ _NEGATIVE_KEYWORDS = ("எதிர்ப்", "புகார்", "கண்�
 # and a one-line abstract instead of a real article. We do not pretend to have
 # a stance on these; relevance gets set to NONE so the briefing skips them.
 _LISTING_PAGE_TITLE_MARKERS = (
+    # Breaking / live / index variants
     "breaking news",
     "news live",
     "latest news",
     "live updates",
+    "top headlines",
     "tamil news live",
     "latest tamil news",
+    "newsletter",
+    # Section landing pages (Dinamani / Hindu Tamil / Times of India patterns)
+    "sports news",
+    "cinema news",
+    "movie news",
+    "tamil cinema",
+    "tamil movie",
+    "election news",
+    "business news",
+    "world news",
+    "news in tamil",
+    "news & reviews",
+    "photos, videos",
+    # Tamil section markers
     "தமிழ் நியூஸ்",
     "இன்றைய செய்திகள்",
     "சமீபத்திய செய்திகள்",
     "லேட்டஸ்ட் செய்திகள்",
+    "சினிமா செய்திகள்",
+    "விளையாட்டுச் செய்திகள்",
+    "தேர்தல் செய்திகள்",
+    "உலக செய்திகள்",
+    "வர்த்தக செய்திகள்",
 )
 _MIN_ARTICLE_CHARS = 160  # below this we treat it as an RSS shell, not an article
+# Stacked-headline detection: section landing pages often paste 5+ distinct
+# headlines together separated by "!" / "?" / "." within the first ~1.2 KB of
+# body text. A real article rarely contains that many sentence-terminators in
+# so little space.
+_STACKED_HEADLINE_WINDOW = 1200
+_STACKED_HEADLINE_MIN_BREAKS = 5
 
 
 def _looks_like_listing_page(title: str, body: str) -> bool:
     """True if the article looks like a generic RSS landing/listing page rather
     than a real story. We err on the side of false (let it through) — only the
     obviously-thin pages get dropped."""
-    if len(body.strip()) < _MIN_ARTICLE_CHARS:
+    body_stripped = body.strip()
+    if len(body_stripped) < _MIN_ARTICLE_CHARS:
         return True
     title_lower = (title or "").lower()
     for marker in _LISTING_PAGE_TITLE_MARKERS:
         if marker in title_lower:
             return True
+    # Stacked-headline detector: section landing pages glue 5+ headlines
+    # together in the first ~1 KB. Real articles have a flowing paragraph.
+    window = body_stripped[:_STACKED_HEADLINE_WINDOW]
+    breaks = window.count("!") + window.count("?")
+    if breaks >= _STACKED_HEADLINE_MIN_BREAKS:
+        return True
     return False
 
 

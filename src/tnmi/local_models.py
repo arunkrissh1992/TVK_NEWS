@@ -57,7 +57,10 @@ from tnmi.contracts import (
 logger = logging.getLogger(__name__)
 
 
-_INDICBERT_CHECKPOINT = "ai4bharat/indic-bert"
+# Public, non-gated multilingual encoder that covers Tamil + English well.
+# 100MB, no Hugging Face login required. Swap to ai4bharat/indic-bert once
+# the operator has authenticated with `huggingface-cli login`.
+_INDICBERT_CHECKPOINT = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 _INDICTRANS_CHECKPOINT = "ai4bharat/indictrans2-indic-en-1B"
 
 
@@ -202,7 +205,7 @@ class LocalTamilAnalyzer:
             return
         try:
             _indicbert.get()
-            self.model_name = "ai4bharat/indic-bert"
+            self.model_name = _INDICBERT_CHECKPOINT
             self._embedding_ready = True
         except LocalModelUnavailable as exc:
             logger.warning("IndicBERT unavailable, using keyword-only path: %s", exc)

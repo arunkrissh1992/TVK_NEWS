@@ -619,7 +619,11 @@ def create_review_decision(decision: ReviewDecisionCreate) -> dict[str, object]:
     with session_factory() as session:
         record = save_review_decision(session, decision)
         session.commit()
-        return _review_decision_payload(record)
+    # If the operator corrected a stance, the briefing's cached payload is
+    # now stale — drop it so the next dashboard render picks up the override.
+    if decision.corrected_stance is not None:
+        invalidate_briefing_cache()
+    return _review_decision_payload(record)
 
 
 @app.get("/review/decisions/{analysis_id}", dependencies=[Depends(require_operator)])

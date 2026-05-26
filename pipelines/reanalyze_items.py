@@ -32,6 +32,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from tnmi.ai import AIAnalyzer, MockAIAnalyzer, OpenAIAnalyzer, PROMPT_VERSION
+from tnmi.local_models import LocalTamilAnalyzer
 from tnmi.config import Settings
 from tnmi.contracts import NormalizedItem, SourceType
 from tnmi.storage import (
@@ -44,7 +45,9 @@ from tnmi.storage import (
 )
 
 
-def build_analyzer(settings: Settings, *, mock_ai: bool) -> AIAnalyzer:
+def build_analyzer(settings: Settings, *, mock_ai: bool, local_tamil: bool = False) -> AIAnalyzer:
+    if local_tamil:
+        return LocalTamilAnalyzer()
     if mock_ai:
         return MockAIAnalyzer()
     if settings.openai_api_key:
@@ -52,7 +55,7 @@ def build_analyzer(settings: Settings, *, mock_ai: bool) -> AIAnalyzer:
             api_key=settings.openai_api_key,
             model_name=settings.openai_model_item_classifier,
         )
-    raise RuntimeError("OPENAI_API_KEY is required unless --mock-ai is provided")
+    raise RuntimeError("OPENAI_API_KEY is required unless --mock-ai or --local-tamil is provided")
 
 
 def _to_normalized_item(record: RawItemRecord) -> NormalizedItem:
@@ -95,6 +98,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--limit", type=int, default=None, help="Maximum items to (re)analyse")
     parser.add_argument("--mock-ai", action="store_true", help="Use the MockAIAnalyzer instead of OpenAI")
     parser.add_argument(
+        "--local-tamil",
+        action="store_true",
+        help="Use LocalTamilAnalyzer (AI4Bharat / multilingual encoder) — runs offline, no OpenAI quota.",
+    )
+    parser.add_argument(
         "--only-mock",
         action="store_true",
         help="Only re-analyse items that currently have a mock analysis",
@@ -108,7 +116,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     settings = Settings()
     try:
-        analyzer = build_analyzer(settings, mock_ai=args.mock_ai)
+        analyzer = build_analyzer(settings, mock_ai=args.mock_ai, local_tamil=args.local_tamil)
     except RuntimeError as exc:
         parser.error(str(exc))
 

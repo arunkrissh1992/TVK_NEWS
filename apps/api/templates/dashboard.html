@@ -80,6 +80,23 @@
 
     <main class="shell main-shell">
 
+      {% if summary.openai_analyses == 0 and summary.mock_analyses > 0 %}
+        <section class="ai-quality-banner" aria-label="AI quality notice">
+          <i class="fa-light fa-triangle-exclamation" aria-hidden="true"></i>
+          <div class="ai-quality-banner-body">
+            <strong>Mock AI mode active.</strong>
+            <span>
+              All stance labels and briefing lines on this dashboard came from a keyword-matching mock
+              analyser, not real AI. Some classifications will be wrong &mdash; please correct them via the
+              <em>"Mark as &hellip;"</em> menu on each card. To run real AI: top up the OpenAI key in
+              <a href="/settings">Operator Settings</a> and click
+              <em>Pull Latest</em>; or finish installing <code>torch</code> for offline IndicBERT.
+            </span>
+          </div>
+        </section>
+      {% endif %}
+
+
       {% if themes.has_themes %}
         <section class="themes-panel" aria-label="Recurring themes">
           <header class="themes-heading">
@@ -351,6 +368,17 @@
               <footer class="card-foot">
                 <span class="card-context"><i class="fa-light fa-building" aria-hidden="true"></i>&nbsp;{{ item.department }} &middot; <i class="fa-light fa-location-dot" aria-hidden="true"></i>&nbsp;{{ item.district }}</span>
                 <div class="card-actions" role="group" aria-label="Card actions">
+                  <div class="card-correct" data-analysis-id="{{ item.analysis_id }}">
+                    <button type="button" class="card-action card-action--correct" aria-haspopup="menu" aria-expanded="false" title="Fix the AI's stance classification">
+                      <i class="fa-light fa-bullseye" aria-hidden="true"></i><span>Correct{% if item.is_operator_corrected %} <em>(fixed)</em>{% endif %}</span>
+                    </button>
+                    <div class="card-correct-menu" role="menu" hidden>
+                      <button type="button" class="card-correct-option" data-stance="positive" role="menuitem">Mark as Positive</button>
+                      <button type="button" class="card-correct-option" data-stance="negative" role="menuitem">Mark as Negative</button>
+                      <button type="button" class="card-correct-option" data-stance="mixed" role="menuitem">Mark as Mixed</button>
+                      <button type="button" class="card-correct-option" data-stance="neutral" role="menuitem">Mark as Neutral</button>
+                    </div>
+                  </div>
                   <button type="button" class="card-action card-action--review" data-action="review" data-analysis-id="{{ item.analysis_id }}" title="Mark this analysis as reviewed">
                     <i class="fa-light fa-circle-check" aria-hidden="true"></i><span>Reviewed</span>
                   </button>

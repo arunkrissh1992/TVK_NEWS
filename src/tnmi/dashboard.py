@@ -261,6 +261,7 @@ def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, An
     if cached is not None:
         return cached
     clusters = cluster_all_articles_for_briefing(session)
+    overrides = _load_operator_stance_overrides(session)
 
     payloads: list[dict[str, Any]] = []
     for cluster in clusters:
@@ -288,6 +289,14 @@ def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, An
             )
 
         stance = cluster.dominant_stance
+        # Operator correction wins over AI classification.
+        member_ids = [m.raw_item_id for m in cluster.members]
+        operator_corrected = next(
+            (overrides[rid] for rid in member_ids if rid in overrides),
+            None,
+        )
+        if operator_corrected:
+            stance = operator_corrected
 
         payloads.append(
             {
@@ -332,6 +341,7 @@ def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, An
                 # newspapers cover the same story — two near-duplicate articles
                 # from one paper shouldn't claim cross-source coverage.
                 "is_consolidated": cluster.distinct_source_count > 1,
+                "is_operator_corrected": bool(operator_corrected),
             }
         )
         if len(payloads) >= bounded_limit:
@@ -346,6 +356,32 @@ def invalidate_briefing_cache() -> None:
     narrative-card cache and the recurring-themes cache."""
     _BRIEFING_CACHE.update(timestamp=0.0, payload=None, limit=0)
     _THEMES_CACHE.clear()
+
+
+def _load_operator_stance_overrides(session: Session) -> dict[int, str]:
+    """Return raw_item_id -> corrected_stance, latest override wins.
+
+    Operators can mark a card as the wrong stance via the dashboard; that
+    decision lands in review_decisions with corrected_stance set. The
+    briefing trusts that override above the AI assignment forever after,
+    so once you fix a misclassification it stays fixed across rebuilds."""
+    rows = session.execute(
+        select(
+            ReviewDecisionRecord.analysis_id,
+            ReviewDecisionRecord.corrected_stance,
+            ReviewDecisionRecord.created_at,
+            AIAnalysisRecord.raw_item_id,
+        )
+        .join(AIAnalysisRecord, AIAnalysisRecord.id == ReviewDecisionRecord.analysis_id)
+        .where(ReviewDecisionRecord.corrected_stance.is_not(None))
+        .order_by(ReviewDecisionRecord.created_at.desc())
+    ).all()
+    overrides: dict[int, str] = {}
+    for _analysis_id, corrected, _created_at, raw_item_id in rows:
+        if raw_item_id in overrides:
+            continue  # we ordered by created_at DESC, first hit is latest
+        overrides[raw_item_id] = corrected
+    return overrides
 
 
 def list_recurring_themes(

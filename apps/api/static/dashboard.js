@@ -492,6 +492,86 @@
     });
   }
 
+  // ===== Per-card stance correction (operator override) =====
+  function setupStanceCorrection() {
+    const containers = Array.from(doc.querySelectorAll(".card-correct"));
+    if (!containers.length) return;
+
+    const operatorTokenMeta = doc.querySelector('meta[name="x-tnmi-operator-token"]');
+    const operatorToken = operatorTokenMeta ? operatorTokenMeta.content : null;
+    function authHeaders() {
+      const headers = { "Content-Type": "application/json" };
+      if (operatorToken) headers["X-TNMI-Operator-Token"] = operatorToken;
+      return headers;
+    }
+
+    function closeAllMenus() {
+      containers.forEach((c) => {
+        const menu = c.querySelector(".card-correct-menu");
+        const trigger = c.querySelector(".card-action--correct");
+        if (menu) menu.hidden = true;
+        if (trigger) trigger.setAttribute("aria-expanded", "false");
+      });
+    }
+
+    doc.addEventListener("click", function (event) {
+      if (!event.target.closest(".card-correct")) closeAllMenus();
+    });
+
+    containers.forEach(function (container) {
+      const trigger = container.querySelector(".card-action--correct");
+      const menu = container.querySelector(".card-correct-menu");
+      if (!trigger || !menu) return;
+
+      trigger.addEventListener("click", function (event) {
+        event.stopPropagation();
+        const isOpen = !menu.hidden;
+        closeAllMenus();
+        menu.hidden = isOpen;
+        trigger.setAttribute("aria-expanded", String(!isOpen));
+      });
+
+      Array.from(menu.querySelectorAll(".card-correct-option")).forEach(function (option) {
+        option.addEventListener("click", async function (event) {
+          event.stopPropagation();
+          const stance = option.dataset.stance;
+          const analysisId = container.dataset.analysisId;
+          if (!stance || !analysisId) return;
+
+          const originalText = trigger.innerHTML;
+          trigger.disabled = true;
+          trigger.innerHTML = '<i class="fa-light fa-circle-notch fa-spin" aria-hidden="true"></i><span>Saving</span>';
+          menu.hidden = true;
+
+          try {
+            const response = await fetch("/review/decisions", {
+              method: "POST",
+              headers: authHeaders(),
+              body: JSON.stringify({
+                analysis_id: Number(analysisId),
+                reviewer_name: "Operator",
+                status: "corrected",
+                note: "Stance corrected from dashboard",
+                corrected_stance: stance,
+              }),
+            });
+            if (!response.ok) throw new Error("HTTP " + response.status);
+            trigger.innerHTML = '<i class="fa-solid fa-circle-check" aria-hidden="true"></i><span>Fixed &mdash; reload</span>';
+            // Reload after a short delay so the dashboard rebuilds with
+            // the corrected stance applied at the source-of-truth layer.
+            setTimeout(() => window.location.reload(), 700);
+          } catch (err) {
+            trigger.innerHTML = '<i class="fa-light fa-triangle-exclamation" aria-hidden="true"></i><span>Failed</span>';
+            setTimeout(() => {
+              trigger.disabled = false;
+              trigger.innerHTML = originalText;
+            }, 2500);
+          }
+        });
+      });
+    });
+  }
+
   // ===== Topline date click → focus the day picker =====
   function setupToplineDateJump() {
     const trigger = doc.getElementById("topline-date-jump");
@@ -687,6 +767,7 @@
     setupPullLatest();
     setupViewToggle();
     setupToplineDateJump();
+    setupStanceCorrection();
   }
 
   if (doc.readyState === "loading") {
