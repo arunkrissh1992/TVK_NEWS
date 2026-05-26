@@ -334,24 +334,51 @@ class _FallbackAnalyzer:
 
 
 def _build_news_analyzer(settings: Settings):
-    """Build the cascade analyser. Order: OpenAI → LocalTamil → Mock.
+    """Build the cascade analyser.
 
-    When OpenAI billing is restored every article gets real GPT analysis.
-    When OpenAI is unavailable we fall back to the local Tamil-native
-    analyser (AI4Bharat IndicBERT + keyword classifier). When even that
-    is missing (no `transformers` install yet) we fall back to the mock.
-    The dashboard never sees an empty day."""
-    tiers: list[Any] = []
+    Default order: Gemma → OpenAI → LocalTamil → Mock.
+
+    Gemma 2 (via Ollama, fully local, zero tokens) is the default primary
+    analyser. OpenAI is kept as a paid fallback for when Ollama is down or
+    the operator wants the faster GPT output for a specific run.
+
+    Set ``TNMI_PREFER_OPENAI=1`` to flip the order back to OpenAI-first.
+    Useful when the operator has OpenAI quota and wants the fastest run
+    even though it consumes tokens.
+    """
+    prefer_openai = os.getenv("TNMI_PREFER_OPENAI", "").lower() in ("1", "true", "yes")
+
+    openai_tier: Any | None = None
     if getattr(settings, "openai_api_key", None):
         try:
-            tiers.append(
-                OpenAIAnalyzer(
-                    api_key=settings.openai_api_key,
-                    model_name=settings.openai_model_item_classifier,
-                )
+            openai_tier = OpenAIAnalyzer(
+                api_key=settings.openai_api_key,
+                model_name=settings.openai_model_item_classifier,
             )
         except Exception:
             traceback.print_exc()
+
+    gemma_tier: Any | None = None
+    try:
+        from tnmi.local_llm import GemmaAnalyzer
+
+        gemma_tier = GemmaAnalyzer()
+    except Exception:
+        traceback.print_exc()
+
+    tiers: list[Any] = []
+    if prefer_openai:
+        # OpenAI-first: faster + better quality, but burns tokens.
+        if openai_tier is not None:
+            tiers.append(openai_tier)
+        if gemma_tier is not None:
+            tiers.append(gemma_tier)
+    else:
+        # Gemma-first (default): zero tokens, fully local, confidential.
+        if gemma_tier is not None:
+            tiers.append(gemma_tier)
+        if openai_tier is not None:
+            tiers.append(openai_tier)
     tiers.append(LocalTamilAnalyzer())
     tiers.append(MockAIAnalyzer())
     return _FallbackAnalyzer(tiers)

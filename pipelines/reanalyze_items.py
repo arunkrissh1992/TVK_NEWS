@@ -45,7 +45,18 @@ from tnmi.storage import (
 )
 
 
-def build_analyzer(settings: Settings, *, mock_ai: bool, local_tamil: bool = False) -> AIAnalyzer:
+def build_analyzer(
+    settings: Settings,
+    *,
+    mock_ai: bool,
+    local_tamil: bool = False,
+    gemma: bool = False,
+) -> AIAnalyzer:
+    if gemma:
+        # Lazy import — keeps `ollama` an optional dependency.
+        from tnmi.local_llm import GemmaAnalyzer
+
+        return GemmaAnalyzer(timeout=240.0)
     if local_tamil:
         return LocalTamilAnalyzer()
     if mock_ai:
@@ -55,7 +66,9 @@ def build_analyzer(settings: Settings, *, mock_ai: bool, local_tamil: bool = Fal
             api_key=settings.openai_api_key,
             model_name=settings.openai_model_item_classifier,
         )
-    raise RuntimeError("OPENAI_API_KEY is required unless --mock-ai or --local-tamil is provided")
+    raise RuntimeError(
+        "OPENAI_API_KEY is required unless --mock-ai / --local-tamil / --gemma is provided"
+    )
 
 
 def _to_normalized_item(record: RawItemRecord) -> NormalizedItem:
@@ -100,7 +113,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument(
         "--local-tamil",
         action="store_true",
-        help="Use LocalTamilAnalyzer (AI4Bharat / multilingual encoder) — runs offline, no OpenAI quota.",
+        help="Use LocalTamilAnalyzer (multilingual encoder + keyword classifier) — fast, stance-only.",
+    )
+    parser.add_argument(
+        "--gemma",
+        action="store_true",
+        help="Use GemmaAnalyzer (Gemma 2 2B via Ollama) — full briefing-quality LLM, fully local, no tokens. Slow on CPU (~30-60s per article).",
     )
     parser.add_argument(
         "--only-mock",
@@ -116,7 +134,12 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     settings = Settings()
     try:
-        analyzer = build_analyzer(settings, mock_ai=args.mock_ai, local_tamil=args.local_tamil)
+        analyzer = build_analyzer(
+            settings,
+            mock_ai=args.mock_ai,
+            local_tamil=args.local_tamil,
+            gemma=args.gemma,
+        )
     except RuntimeError as exc:
         parser.error(str(exc))
 
