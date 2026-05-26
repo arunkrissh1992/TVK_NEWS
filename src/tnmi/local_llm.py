@@ -1,44 +1,65 @@
-"""Local LLM analyser — Gemma 2 via Ollama.
+"""LLM analyser running through Ollama — local CPU or cloud GPU.
 
-Phase G fallback: when OpenAI is unavailable (quota, network, contract-side
-restrictions) we want a real LLM running on the operator's machine, not the
-keyword/embedding classifier. That LLM has to:
+When OpenAI is unavailable (quota, contract-side restrictions, or simply
+"no tokens please") we want a real LLM that:
 
-  * Run fully offline once the model is pulled (true confidentiality —
-    no article text leaves the operator's network).
-  * Speak Tamil and English natively.
-  * Generate the full briefing fields the chief expects (summary_original,
+  * Speaks Tamil and English natively.
+  * Generates the full briefing fields the chief expects (summary_original,
     summary_english, party_action, people_impact, root_cause,
     recommended_step) — not just stance labels.
-  * Cost zero tokens.
+  * Costs zero OpenAI tokens.
 
-Gemma 2 2B (quantized, ~1.6 GB) hits this sweet spot. It runs on CPU in
-~3-8 seconds per article, handles Tamil reasonably, and Ollama wraps the
-deployment with a simple HTTP API at http://localhost:11434.
+Ollama wraps that LLM deployment with a single HTTP API at
+http://localhost:11434, regardless of where the model actually runs:
+
+  Local mode (default)
+    Model weights live on the operator's machine; inference uses the local
+    CPU. Best confidentiality posture (no article text leaves the network)
+    but slow — Gemma 2 2B takes 30-60 s per article on CPU.
+
+  Cloud mode (after `ollama signin`)
+    Same daemon, same API — but model weights and inference live on Ollama's
+    hosted GPUs. The local daemon proxies requests transparently. Much
+    faster (typically 2-5 s per article) and unlocks bigger models that
+    don't fit on CPU (Gemma 3 27B, Qwen 2.5 72B, GPT-OSS 120B). Article
+    text leaves the network, so only use this if newspaper coverage is
+    public enough that the OpenAI confidentiality posture would also apply.
+
+Selecting the model:
+
+  Set OLLAMA_MODEL in the environment. Examples:
+    OLLAMA_MODEL=gemma2:2b              (default — local CPU)
+    OLLAMA_MODEL=gemma3:27b-cloud        (Ollama Cloud, big Gemma)
+    OLLAMA_MODEL=qwen2.5:72b-cloud       (Ollama Cloud, big Qwen)
 
 Pipeline:
-  1. Apply the same listing-page + TN-relevance gates as ai.py / local_models.py
-     — we never spend a Gemma call on an RSS shell or out-of-scope article.
-  2. Build the same chief-briefing prompt as OpenAI, but with explicit JSON
-     schema + JSON-mode instructions Gemma can reliably follow.
+  1. Apply the listing-page + TN-relevance gates from ai.py — we never
+     spend an LLM call on an RSS shell or out-of-scope article.
+  2. Build the chief-briefing prompt with an explicit JSON schema, so
+     small + large models reliably produce records that pass Pydantic
+     validation.
   3. POST to /api/generate with format="json", parse, validate against
-     AIAnalysis. If the model returned malformed JSON, raise — the cascade
+     AIAnalysis. On malformed JSON or daemon error we raise — the cascade
      falls through to LocalTamilAnalyzer.
 
-Install:
+First-time install:
 
     winget install Ollama.Ollama
-    ollama pull gemma2:2b
     pip install ollama
 
-After that everything runs offline. The Ollama daemon auto-starts on boot
-on Windows.
+Then either pull a local model or sign in for cloud:
+
+    ollama pull gemma2:2b               # local mode
+    ollama signin                        # cloud mode (opens browser)
+
+The Ollama daemon auto-starts on boot on Windows.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any
 
 from tnmi.ai import (
@@ -54,10 +75,19 @@ from tnmi.contracts import AIAnalysis, NormalizedItem
 logger = logging.getLogger(__name__)
 
 
-# Default Ollama endpoint + model. The operator can override the model in
-# Settings (e.g. swap gemma2:2b for gemma2:9b or llama3.2:3b without code).
-_OLLAMA_HOST = "http://localhost:11434"
-_DEFAULT_MODEL = "gemma2:2b"
+# Default Ollama endpoint + model. Both are overridable via env vars so the
+# operator can switch between local Gemma 2B, Gemma 3 / Qwen 2.5 cloud
+# (via Ollama signin), or any other tag without touching code.
+#
+#   OLLAMA_HOST   — defaults to local daemon at http://localhost:11434.
+#                   The same local daemon proxies cloud requests once the
+#                   operator runs `ollama signin`, so this rarely changes.
+#   OLLAMA_MODEL  — e.g. "gemma2:2b" (local CPU), "gemma3:27b-cloud",
+#                   "qwen2.5:72b-cloud", "gpt-oss:120b-cloud". The "-cloud"
+#                   suffix tells Ollama to run on its hosted GPUs instead
+#                   of the local CPU.
+_OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+_DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "gemma2:2b")
 
 # We want short, scannable briefing lines. Gemma 2 generates a couple of
 # hundred tokens in under a few seconds on CPU; 768 is comfortably above
@@ -216,9 +246,14 @@ class GemmaAnalyzer:
             if name:
                 available.append(name)
         if self._model not in available:
+            is_cloud = self._model.endswith("-cloud") or self._model.endswith(":cloud")
+            hint = (
+                "Sign in to Ollama Cloud with: ollama signin"
+                if is_cloud
+                else f"Pull it with: ollama pull {self._model}"
+            )
             raise GemmaAnalyzerUnavailable(
-                f"model {self._model!r} not found in Ollama. "
-                f"Pull it with: ollama pull {self._model}. "
+                f"model {self._model!r} not found in Ollama. {hint}. "
                 f"Available models: {available}"
             )
         self._daemon_checked = True
