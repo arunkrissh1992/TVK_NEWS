@@ -213,7 +213,7 @@ import time as _time
 
 _BRIEFING_CACHE: dict[str, Any] = {"timestamp": 0.0, "payload": None, "limit": 0}
 _THEMES_CACHE: dict[str, Any] = {}  # (limit, cross_ref) -> {timestamp, payload}
-_CACHE_TTL_SECONDS = 60.0
+_CACHE_TTL_SECONDS = 300.0  # 5 minutes — invalidated whenever ingest writes new rows
 
 
 def _briefing_cache_get(limit: int) -> list[dict[str, Any]] | None:
