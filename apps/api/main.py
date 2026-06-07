@@ -14,10 +14,12 @@ from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Re
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from tnmi import __version__
 from tnmi.ai import MockAIAnalyzer, OpenAIAnalyzer
+from tnmi.chat import ChatAIProvider, OllamaChatProvider, answer_question
 from tnmi.local_models import LocalTamilAnalyzer
 from tnmi.config import Settings, load_newspaper_sources, load_x_handle_sources
 from tnmi.contracts import ReviewDecisionCreate
@@ -250,6 +252,11 @@ _NO_CACHE_HEADERS = {
 }
 
 
+class ChatAskRequest(BaseModel):
+    question: str = Field(min_length=3, max_length=1000)
+    limit: int = Field(default=5, ge=1, le=8)
+
+
 # ---------------------------------------------------------------------------
 # Pull Latest — background ingest job
 # ---------------------------------------------------------------------------
@@ -385,6 +392,13 @@ def _build_news_analyzer(settings: Settings):
     tiers.append(LocalTamilAnalyzer())
     tiers.append(MockAIAnalyzer())
     return _FallbackAnalyzer(tiers)
+
+
+def _build_chat_provider(settings: Settings) -> ChatAIProvider:
+    return OllamaChatProvider(
+        model=settings.ollama_model,
+        host=settings.ollama_host,
+    )
 
 
 def _run_ingest_job(trigger: str) -> None:
@@ -632,6 +646,26 @@ def dashboard_summary() -> dict[str, object]:
     session_factory = create_session_factory(settings.database_url)
     with session_factory() as session:
         return get_dashboard_summary(session)
+
+
+@app.post("/chat/ask", dependencies=[Depends(require_operator)])
+def ask_chat(request: ChatAskRequest) -> dict[str, object]:
+    settings = Settings()
+    provider: ChatAIProvider | None = None
+    try:
+        provider = _build_chat_provider(settings)
+    except Exception:
+        traceback.print_exc()
+
+    session_factory = create_session_factory(settings.database_url)
+    with session_factory() as session:
+        answer = answer_question(
+            session,
+            request.question,
+            provider=provider,
+            limit=request.limit,
+        )
+    return answer.model_dump(mode="json")
 
 
 @app.get("/review/queue", dependencies=[Depends(require_operator)])

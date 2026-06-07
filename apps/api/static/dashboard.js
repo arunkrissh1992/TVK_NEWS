@@ -9,6 +9,14 @@
     return (value || "").toString().trim().toLowerCase();
   }
 
+  function buildJsonHeaders() {
+    const headers = { "Content-Type": "application/json" };
+    const operatorTokenMeta = doc.querySelector('meta[name="x-tnmi-operator-token"]');
+    const operatorToken = operatorTokenMeta ? operatorTokenMeta.content : null;
+    if (operatorToken) headers["X-TNMI-Operator-Token"] = operatorToken;
+    return headers;
+  }
+
   // ===== Initial reveal (everything except filter deck, which has its own choreography) =====
   function markReveal() {
     const targets = doc.querySelectorAll(
@@ -492,6 +500,118 @@
     });
   }
 
+  // ===== Ask AI grounded in stored newspaper evidence =====
+  function setupChatbot() {
+    const form = doc.getElementById("chat-form");
+    const input = doc.getElementById("chat-question");
+    const submit = doc.getElementById("chat-submit");
+    const status = doc.getElementById("chat-status");
+    const answerCard = doc.getElementById("chat-answer-card");
+    const answerText = doc.getElementById("chat-answer-text");
+    const answerBadge = doc.getElementById("chat-answer-badge");
+    const evidenceList = doc.getElementById("chat-evidence-list");
+    if (!form || !input || !submit || !status || !answerCard || !answerText || !answerBadge || !evidenceList) return;
+
+    const icon = submit.querySelector("i");
+    const label = submit.querySelector("span");
+    const originalIcon = icon ? icon.className : "";
+    const originalLabel = label ? label.textContent : "Ask AI";
+
+    function setLoading(isLoading) {
+      submit.disabled = isLoading;
+      submit.classList.toggle("is-loading", isLoading);
+      if (icon) {
+        icon.className = isLoading
+          ? "fa-light fa-circle-notch"
+          : originalIcon;
+      }
+      if (label) label.textContent = isLoading ? "Reading evidence" : originalLabel;
+    }
+
+    function clearEvidence() {
+      while (evidenceList.firstChild) evidenceList.removeChild(evidenceList.firstChild);
+    }
+
+    function renderEvidence(evidence) {
+      clearEvidence();
+      evidence.forEach(function (item, index) {
+        const article = doc.createElement("article");
+        article.className = "chat-evidence-item";
+
+        const titleRow = doc.createElement("div");
+        titleRow.className = "chat-evidence-title";
+
+        const title = doc.createElement("span");
+        title.textContent = (index + 1) + ". " + (item.title || "Untitled item");
+
+        const meta = doc.createElement("span");
+        meta.className = "chat-evidence-meta";
+        meta.textContent = [item.source_name, item.stance].filter(Boolean).join(" · ");
+
+        const snippet = doc.createElement("p");
+        snippet.className = "chat-evidence-snippet";
+        snippet.textContent = item.snippet || item.summary || "";
+
+        const link = doc.createElement("a");
+        link.className = "chat-evidence-link";
+        link.href = item.source_url || "#";
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        link.textContent = "Open source";
+
+        const linkIcon = doc.createElement("i");
+        linkIcon.className = "fa-light fa-arrow-up-right-from-square";
+        linkIcon.setAttribute("aria-hidden", "true");
+        link.appendChild(linkIcon);
+
+        titleRow.append(title, meta);
+        article.append(titleRow, snippet, link);
+        evidenceList.appendChild(article);
+      });
+    }
+
+    form.addEventListener("submit", async function (event) {
+      event.preventDefault();
+      const question = (input.value || "").trim();
+      if (question.length < 3) {
+        status.textContent = "Please ask a more specific question.";
+        status.classList.add("is-error");
+        return;
+      }
+
+      status.textContent = "Checking the stored newspaper evidence...";
+      status.classList.remove("is-error");
+      answerCard.hidden = true;
+      clearEvidence();
+      setLoading(true);
+
+      try {
+        const response = await fetch("/chat/ask", {
+          method: "POST",
+          headers: buildJsonHeaders(),
+          body: JSON.stringify({ question: question, limit: 5 }),
+        });
+        if (!response.ok) throw new Error("HTTP " + response.status);
+
+        const payload = await response.json();
+        answerText.textContent = payload.answer || "No answer was returned.";
+        answerBadge.textContent = payload.used_ai
+          ? "AI answer from stored evidence"
+          : "Stored evidence answer";
+        renderEvidence(Array.isArray(payload.evidence) ? payload.evidence : []);
+        answerCard.hidden = false;
+        status.textContent = payload.evidence && payload.evidence.length
+          ? "Answer prepared with " + payload.evidence.length + " source link" + (payload.evidence.length === 1 ? "." : "s.")
+          : "No matching stored newspaper evidence was found.";
+      } catch (_) {
+        status.textContent = "Could not answer now. Please try again after checking the stored data.";
+        status.classList.add("is-error");
+      } finally {
+        setLoading(false);
+      }
+    });
+  }
+
   // ===== Per-card stance correction (operator override) =====
   function setupStanceCorrection() {
     const containers = Array.from(doc.querySelectorAll(".card-correct"));
@@ -764,6 +884,7 @@
     setupCardActions();
     setupScrollSpy();
     setupSourceBars();
+    setupChatbot();
     setupPullLatest();
     setupViewToggle();
     setupToplineDateJump();

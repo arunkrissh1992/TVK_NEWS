@@ -206,6 +206,8 @@ def test_dashboard_html_renders_summary_and_review_queue(monkeypatch, tmp_path):
     assert 'data-filter="mixed"' in response.text
     assert 'data-filter="people"' in response.text
     assert "Positive and Negative Portrayal With Evidence" in response.text
+    assert "Ask the Briefing Data" in response.text
+    assert "Ask AI" in response.text
     assert "People Issues" in response.text
     assert "Needs review." in response.text
     assert "Evidence &middot;" in response.text
@@ -231,6 +233,44 @@ def test_operator_token_blocks_confidential_dashboard_endpoint(monkeypatch, tmp_
 
     assert blocked.status_code == 401
     assert allowed.status_code == 200
+
+
+def test_chat_ask_endpoint_returns_ai_answer_with_evidence(monkeypatch, tmp_path):
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'api-chat.db'}")
+    init_db(session_factory)
+    with session_factory() as session:
+        raw = save_raw_item(session, make_item())
+        save_ai_analysis(session, raw.id, make_analysis(), model_name="mock", prompt_version="v1")
+        session.commit()
+
+    class FakeSettings:
+        database_url = f"sqlite:///{tmp_path / 'api-chat.db'}"
+        news_source_config = tmp_path / "missing.yaml"
+        report_output_dir = tmp_path / "reports"
+        operator_api_token = None
+        ollama_host = "http://localhost:11434"
+        ollama_model = "fake"
+
+    class FakeProvider:
+        model_name = "fake-ai"
+
+        def answer(self, question, evidence):  # type: ignore[no-untyped-def]
+            assert question == "What is positive?"
+            assert evidence[0].source_url == "https://example.com/a"
+            return "The stored evidence shows a positive item."
+
+    monkeypatch.setattr(api_main, "Settings", FakeSettings)
+    monkeypatch.setattr(api_main, "_build_chat_provider", lambda settings: FakeProvider())
+    client = TestClient(app)
+
+    response = client.post("/chat/ask", json={"question": "What is positive?"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["used_ai"] is True
+    assert payload["model_name"] == "fake-ai"
+    assert payload["answer"] == "The stored evidence shows a positive item."
+    assert payload["evidence"][0]["source_url"] == "https://example.com/a"
 
 
 def test_settings_page_and_status_mask_openai_secret(monkeypatch, tmp_path):
