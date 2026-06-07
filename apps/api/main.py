@@ -32,6 +32,7 @@ from tnmi.dashboard import (
     list_review_queue,
 )
 from tnmi.pipeline import DailyNewsPipeline, RequestsNewsClient
+from tnmi.quality import audit_analysis_quality
 from tnmi.storage import (
     AIAnalysisRecord,
     RawItemRecord,
@@ -120,10 +121,12 @@ def _dashboard_audit_events(
 ) -> list[dict[str, str]]:
     openai_ready = bool(settings_status["openai_configured"])
     openai_count = int(summary.get("openai_analyses", 0))
+    semantic_count = int(summary.get("semantic_analyses", 0))
+    fallback_count = int(summary.get("fallback_analyses", 0))
     latest_report = report_files[0]["filename"] if report_files else "No report generated"
-    ai_status = "OpenAI live" if openai_ready and openai_count else "Configured, waiting for live run"
-    if not openai_ready:
-        ai_status = "Mock fallback only"
+    ai_status = "Semantic AI live" if semantic_count else "Keyword fallback"
+    if openai_ready and not openai_count:
+        ai_status = "OpenAI configured, waiting for live run"
     return [
         {
             "stage": "Source Registry",
@@ -133,7 +136,10 @@ def _dashboard_audit_events(
         {
             "stage": "AI Classification",
             "status": ai_status,
-            "detail": f"{openai_count} OpenAI analyses and {summary.get('mock_analyses', 0)} mock analyses retained for audit comparison.",
+            "detail": (
+                f"{semantic_count} semantic analyses and {fallback_count} fallback analyses are active "
+                "after per-article dedupe."
+            ),
         },
         {
             "stage": "RAG Evidence Index",
@@ -158,7 +164,7 @@ def _briefing_groups(latest_items: list[dict[str, object]]) -> dict[str, list[di
     concerns = [
         item
         for item in latest_items
-        if item.get("stance") in {"negative", "mixed"} or item.get("needs_human_review")
+        if item.get("people_issue") or item.get("stance") in {"negative", "mixed"} or item.get("needs_human_review")
     ]
     return {
         "positive_items": positive[:4],
@@ -470,6 +476,7 @@ def dashboard_page(request: Request, print: int = 0) -> HTMLResponse:
             cross_reference_global=bool(int(os.environ.get("TNMI_ENABLE_GLOBAL_CROSSREF", "0"))),
         )
         trends = get_dashboard_trends(session, days=14)
+        quality_issues = audit_analysis_quality(session, limit=25)
     settings_status = _settings_status(settings)
     report_files = _list_report_files(Path(settings.report_output_dir))
     return templates.TemplateResponse(
@@ -481,6 +488,7 @@ def dashboard_page(request: Request, print: int = 0) -> HTMLResponse:
             "latest_items": latest_items,
             "themes": themes,
             "trends": trends,
+            "quality_issues": quality_issues,
             **_briefing_groups(latest_items),
             "settings_status": settings_status,
             "audit_events": _dashboard_audit_events(

@@ -26,16 +26,33 @@ CREATE TABLE ai_analysis (
     prompt_version VARCHAR(64) NOT NULL,
     government_relevance VARCHAR(32) NOT NULL,
     stance_toward_government VARCHAR(32) NOT NULL,
+    tvk_relevance VARCHAR(32) NOT NULL DEFAULT 'none',
+    tvk_portrayal VARCHAR(32) NOT NULL DEFAULT 'neutral',
     sentiment VARCHAR(32) NOT NULL,
     target TEXT NOT NULL,
+    political_actors JSONB NOT NULL DEFAULT '[]'::jsonb,
     department VARCHAR(128) NOT NULL,
     district VARCHAR(128) NOT NULL,
     scheme VARCHAR(255),
     topic TEXT NOT NULL,
     issue_category VARCHAR(128) NOT NULL,
+    people_issue BOOLEAN NOT NULL DEFAULT false,
+    public_issue TEXT NOT NULL DEFAULT '',
     severity VARCHAR(64) NOT NULL,
     summary_original TEXT NOT NULL,
     summary_english TEXT NOT NULL,
+    party_action TEXT NOT NULL DEFAULT '',
+    people_impact TEXT NOT NULL DEFAULT '',
+    root_cause TEXT NOT NULL DEFAULT '',
+    recommended_step TEXT NOT NULL DEFAULT '',
+    action_owner VARCHAR(128) NOT NULL DEFAULT '',
+    action_type VARCHAR(64) NOT NULL DEFAULT '',
+    action_priority VARCHAR(64) NOT NULL DEFAULT 'low',
+    risk_if_ignored TEXT NOT NULL DEFAULT '',
+    talking_points JSONB NOT NULL DEFAULT '[]'::jsonb,
+    verification_checklist JSONB NOT NULL DEFAULT '[]'::jsonb,
+    draft_statement_original TEXT NOT NULL DEFAULT '',
+    draft_statement_english TEXT NOT NULL DEFAULT '',
     positive_points JSONB NOT NULL DEFAULT '[]'::jsonb,
     negative_points JSONB NOT NULL DEFAULT '[]'::jsonb,
     evidence_quotes_original JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -49,6 +66,9 @@ CREATE TABLE ai_analysis (
 CREATE INDEX ix_ai_analysis_raw_item_id ON ai_analysis (raw_item_id);
 CREATE INDEX ix_ai_analysis_government_relevance ON ai_analysis (government_relevance);
 CREATE INDEX ix_ai_analysis_stance_toward_government ON ai_analysis (stance_toward_government);
+CREATE INDEX ix_ai_analysis_tvk_relevance ON ai_analysis (tvk_relevance);
+CREATE INDEX ix_ai_analysis_tvk_portrayal ON ai_analysis (tvk_portrayal);
+CREATE INDEX ix_ai_analysis_people_issue ON ai_analysis (people_issue);
 CREATE INDEX ix_ai_analysis_department ON ai_analysis (department);
 CREATE INDEX ix_ai_analysis_district ON ai_analysis (district);
 

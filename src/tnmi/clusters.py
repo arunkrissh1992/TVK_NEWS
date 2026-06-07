@@ -353,12 +353,25 @@ def cluster_all_articles_for_briefing(
                         title=raw.title,
                         stance=analysis.stance_toward_government,
                         relevance=analysis.government_relevance,
+                        tvk_portrayal=analysis.tvk_portrayal,
+                        tvk_relevance=analysis.tvk_relevance,
+                        people_issue=bool(analysis.people_issue),
+                        public_issue=analysis.public_issue,
                         summary_english=analysis.summary_english,
                         summary_original=analysis.summary_original,
                         party_action=analysis.party_action,
                         people_impact=analysis.people_impact,
                         root_cause=analysis.root_cause,
                         recommended_step=analysis.recommended_step,
+                        action_owner=analysis.action_owner,
+                        action_type=analysis.action_type,
+                        action_priority=analysis.action_priority,
+                        risk_if_ignored=analysis.risk_if_ignored or "",
+                        talking_points=list(analysis.talking_points or []),
+                        verification_checklist=list(analysis.verification_checklist or []),
+                        draft_statement_original=analysis.draft_statement_original or "",
+                        draft_statement_english=analysis.draft_statement_english or "",
+                        political_actors=list(analysis.political_actors or []),
                         evidence_quotes_original=list(analysis.evidence_quotes_original or []),
                         department=analysis.department,
                         district=analysis.district,
@@ -396,12 +409,25 @@ class ArticleMember:
     title: str | None
     stance: str | None
     relevance: str | None
+    tvk_portrayal: str | None
+    tvk_relevance: str | None
+    people_issue: bool
+    public_issue: str
     summary_english: str
     summary_original: str
     party_action: str
     people_impact: str
     root_cause: str
     recommended_step: str
+    action_owner: str
+    action_type: str
+    action_priority: str
+    risk_if_ignored: str
+    talking_points: list[str]
+    verification_checklist: list[str]
+    draft_statement_original: str
+    draft_statement_english: str
+    political_actors: list[str]
     evidence_quotes_original: list[str]
     department: str
     district: str
@@ -513,6 +539,8 @@ def _build_article_member(
 ) -> ArticleMember:
     rel = (analysis.government_relevance if analysis else None) or ""
     stance = (analysis.stance_toward_government if analysis else None) or ""
+    tvk_portrayal = (analysis.tvk_portrayal if analysis else None) or ""
+    tvk_relevance = (analysis.tvk_relevance if analysis else None) or ""
     return ArticleMember(
         raw_item_id=vector.raw_item_id,
         analysis_id=(analysis.id if analysis else 0),
@@ -521,12 +549,25 @@ def _build_article_member(
         title=vector.title,
         stance=stance or None,
         relevance=rel or None,
+        tvk_portrayal=tvk_portrayal or None,
+        tvk_relevance=tvk_relevance or None,
+        people_issue=bool(analysis.people_issue) if analysis else False,
+        public_issue=(analysis.public_issue if analysis else "") or "",
         summary_english=(analysis.summary_english if analysis else "") or "",
         summary_original=(analysis.summary_original if analysis else "") or "",
         party_action=(analysis.party_action if analysis else "") or "",
         people_impact=(analysis.people_impact if analysis else "") or "",
         root_cause=(analysis.root_cause if analysis else "") or "",
         recommended_step=(analysis.recommended_step if analysis else "") or "",
+        action_owner=(analysis.action_owner if analysis else "") or "",
+        action_type=(analysis.action_type if analysis else "") or "",
+        action_priority=(analysis.action_priority if analysis else "") or "",
+        risk_if_ignored=(analysis.risk_if_ignored if analysis else "") or "",
+        talking_points=list((analysis.talking_points or []) if analysis else []),
+        verification_checklist=list((analysis.verification_checklist or []) if analysis else []),
+        draft_statement_original=(analysis.draft_statement_original if analysis else "") or "",
+        draft_statement_english=(analysis.draft_statement_english if analysis else "") or "",
+        political_actors=list((analysis.political_actors or []) if analysis else []),
         evidence_quotes_original=list((analysis.evidence_quotes_original or []) if analysis else []),
         department=(analysis.department if analysis else "") or "",
         district=(analysis.district if analysis else "") or "",

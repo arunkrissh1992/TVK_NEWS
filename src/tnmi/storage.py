@@ -75,13 +75,18 @@ class AIAnalysisRecord(Base):
     prompt_version: Mapped[str] = mapped_column(String(64))
     government_relevance: Mapped[str] = mapped_column(String(32), index=True)
     stance_toward_government: Mapped[str] = mapped_column(String(32), index=True)
+    tvk_relevance: Mapped[str] = mapped_column(String(32), index=True, default="none", server_default="none")
+    tvk_portrayal: Mapped[str] = mapped_column(String(32), index=True, default="neutral", server_default="neutral")
     sentiment: Mapped[str] = mapped_column(String(32))
     target: Mapped[str] = mapped_column(Text)
+    political_actors: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list, server_default=text("'[]'"))
     department: Mapped[str] = mapped_column(String(128), index=True)
     district: Mapped[str] = mapped_column(String(128), index=True)
     scheme: Mapped[str | None] = mapped_column(String(255), nullable=True)
     topic: Mapped[str] = mapped_column(Text)
     issue_category: Mapped[str] = mapped_column(String(128))
+    people_issue: Mapped[bool] = mapped_column(default=False, server_default=text("false"), index=True)
+    public_issue: Mapped[str] = mapped_column(Text, default="", server_default="")
     severity: Mapped[str] = mapped_column(String(64))
     summary_original: Mapped[str] = mapped_column(Text)
     summary_english: Mapped[str] = mapped_column(Text)
@@ -89,6 +94,14 @@ class AIAnalysisRecord(Base):
     people_impact: Mapped[str] = mapped_column(Text, default="", server_default="")
     root_cause: Mapped[str] = mapped_column(Text, default="", server_default="")
     recommended_step: Mapped[str] = mapped_column(Text, default="", server_default="")
+    action_owner: Mapped[str] = mapped_column(String(128), default="", server_default="")
+    action_type: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    action_priority: Mapped[str] = mapped_column(String(64), default="low", server_default="low")
+    risk_if_ignored: Mapped[str] = mapped_column(Text, default="", server_default="")
+    talking_points: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list, server_default=text("'[]'"))
+    verification_checklist: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list, server_default=text("'[]'"))
+    draft_statement_original: Mapped[str] = mapped_column(Text, default="", server_default="")
+    draft_statement_english: Mapped[str] = mapped_column(Text, default="", server_default="")
     positive_points: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list, server_default=text("'[]'"))
     negative_points: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list, server_default=text("'[]'"))
     evidence_quotes_original: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list, server_default=text("'[]'"))
@@ -202,10 +215,23 @@ def _apply_lightweight_migrations(engine: Any) -> None:
     # SQLite demo databases. Adding nullable columns with defaults is safe.
     expected_columns = {
         "ai_analysis": (
-            ("party_action", "TEXT NOT NULL DEFAULT ''"),
-            ("people_impact", "TEXT NOT NULL DEFAULT ''"),
-            ("root_cause", "TEXT NOT NULL DEFAULT ''"),
-            ("recommended_step", "TEXT NOT NULL DEFAULT ''"),
+            ("party_action", "TEXT NOT NULL DEFAULT ''", "TEXT NOT NULL DEFAULT ''"),
+            ("people_impact", "TEXT NOT NULL DEFAULT ''", "TEXT NOT NULL DEFAULT ''"),
+            ("root_cause", "TEXT NOT NULL DEFAULT ''", "TEXT NOT NULL DEFAULT ''"),
+            ("recommended_step", "TEXT NOT NULL DEFAULT ''", "TEXT NOT NULL DEFAULT ''"),
+            ("tvk_relevance", "VARCHAR(32) NOT NULL DEFAULT 'none'", "VARCHAR(32) NOT NULL DEFAULT 'none'"),
+            ("tvk_portrayal", "VARCHAR(32) NOT NULL DEFAULT 'neutral'", "VARCHAR(32) NOT NULL DEFAULT 'neutral'"),
+            ("political_actors", "JSON NOT NULL DEFAULT '[]'", "JSONB NOT NULL DEFAULT '[]'::jsonb"),
+            ("people_issue", "BOOLEAN NOT NULL DEFAULT 0", "BOOLEAN NOT NULL DEFAULT false"),
+            ("public_issue", "TEXT NOT NULL DEFAULT ''", "TEXT NOT NULL DEFAULT ''"),
+            ("action_owner", "VARCHAR(128) NOT NULL DEFAULT ''", "VARCHAR(128) NOT NULL DEFAULT ''"),
+            ("action_type", "VARCHAR(64) NOT NULL DEFAULT ''", "VARCHAR(64) NOT NULL DEFAULT ''"),
+            ("action_priority", "VARCHAR(64) NOT NULL DEFAULT 'low'", "VARCHAR(64) NOT NULL DEFAULT 'low'"),
+            ("risk_if_ignored", "TEXT NOT NULL DEFAULT ''", "TEXT NOT NULL DEFAULT ''"),
+            ("talking_points", "JSON NOT NULL DEFAULT '[]'", "JSONB NOT NULL DEFAULT '[]'::jsonb"),
+            ("verification_checklist", "JSON NOT NULL DEFAULT '[]'", "JSONB NOT NULL DEFAULT '[]'::jsonb"),
+            ("draft_statement_original", "TEXT NOT NULL DEFAULT ''", "TEXT NOT NULL DEFAULT ''"),
+            ("draft_statement_english", "TEXT NOT NULL DEFAULT ''", "TEXT NOT NULL DEFAULT ''"),
         ),
     }
     with engine.begin() as connection:
@@ -213,16 +239,16 @@ def _apply_lightweight_migrations(engine: Any) -> None:
             existing_rows = connection.execute(text(f"PRAGMA table_info('{table_name}')")).all() \
                 if engine.dialect.name == "sqlite" else []
             existing_names = {row[1] for row in existing_rows} if engine.dialect.name == "sqlite" else set()
-            for column_name, column_ddl in columns:
+            for column_name, sqlite_column_ddl, postgres_column_ddl in columns:
                 if engine.dialect.name == "sqlite":
                     if column_name in existing_names:
                         continue
-                    connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_ddl}"))
+                    connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {sqlite_column_ddl}"))
                 else:
                     connection.execute(
                         text(
                             f"ALTER TABLE {table_name} "
-                            f"ADD COLUMN IF NOT EXISTS {column_name} {column_ddl}"
+                            f"ADD COLUMN IF NOT EXISTS {column_name} {postgres_column_ddl}"
                         )
                     )
 
@@ -401,13 +427,18 @@ def save_ai_analysis(
         prompt_version=prompt_version,
         government_relevance=analysis.government_relevance.value,
         stance_toward_government=analysis.stance_toward_government.value,
+        tvk_relevance=(analysis.tvk_relevance or analysis.government_relevance).value,
+        tvk_portrayal=(analysis.tvk_portrayal or analysis.stance_toward_government).value,
         sentiment=analysis.sentiment.value,
         target=analysis.target,
+        political_actors=analysis.political_actors,
         department=analysis.department,
         district=analysis.district,
         scheme=analysis.scheme,
         topic=analysis.topic,
         issue_category=analysis.issue_category,
+        people_issue=bool(analysis.people_issue),
+        public_issue=analysis.public_issue,
         severity=analysis.severity.value,
         summary_original=analysis.summary_original,
         summary_english=analysis.summary_english,
@@ -415,6 +446,14 @@ def save_ai_analysis(
         people_impact=analysis.people_impact,
         root_cause=analysis.root_cause,
         recommended_step=analysis.recommended_step,
+        action_owner=analysis.action_owner,
+        action_type=analysis.action_type,
+        action_priority=(analysis.action_priority or analysis.severity).value,
+        risk_if_ignored=analysis.risk_if_ignored,
+        talking_points=analysis.talking_points,
+        verification_checklist=analysis.verification_checklist,
+        draft_statement_original=analysis.draft_statement_original,
+        draft_statement_english=analysis.draft_statement_english,
         positive_points=analysis.positive_points,
         negative_points=analysis.negative_points,
         evidence_quotes_original=analysis.evidence_quotes_original,

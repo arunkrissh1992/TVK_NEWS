@@ -1162,7 +1162,8 @@ body:not(.view-table) .narrative-table-wrap { display: none; }
 .narrative-row.positive .stance-chip--positive,
 .narrative-row.negative .stance-chip--negative,
 .narrative-row.mixed    .stance-chip--mixed,
-.narrative-row.neutral  .stance-chip--neutral { /* placeholder selector chain */ }
+.narrative-row.neutral  .stance-chip--neutral,
+.narrative-row.people   .stance-chip--people { /* placeholder selector chain */ }
 
 .stance-chip {
   display: inline-flex;
@@ -1181,6 +1182,7 @@ body:not(.view-table) .narrative-table-wrap { display: none; }
 .stance-chip--negative { background: var(--error-soft); color: var(--error-600); }
 .stance-chip--mixed    { background: var(--warning-soft); color: var(--warning-700); }
 .stance-chip--neutral  { background: var(--gray-100); color: var(--muted-strong); }
+.stance-chip--people   { background: #fdecee; color: var(--tvk-red-deep); }
 
 .narrative-table .col-title { min-width: 280px; }
 .narrative-table .col-title strong {
@@ -1410,6 +1412,7 @@ body:not(.view-table) .narrative-table-wrap { display: none; }
 .narrative-card.positive { border-left-color: var(--success); }
 .narrative-card.negative { border-left-color: var(--danger); }
 .narrative-card.mixed    { border-left-color: var(--warning); }
+.narrative-card.people   { border-left-color: var(--tvk-red-deep); }
 .narrative-card.neutral  { border-left-color: var(--gray-300); }
 
 .card-byline {
@@ -1482,6 +1485,8 @@ body:not(.view-table) .narrative-table-wrap { display: none; }
 .narrative-card.positive .byline-stance { color: var(--success); }
 .narrative-card.negative .byline-stance { color: var(--danger); }
 .narrative-card.mixed    .byline-stance { color: var(--warning); }
+.narrative-card.people   .byline-stance,
+.byline-issue { color: var(--tvk-red-deep); }
 
 .card-headline {
   font-size: var(--font-size-5);
@@ -1542,12 +1547,85 @@ body:not(.view-table) .narrative-table-wrap { display: none; }
 .briefing-line--people dt { color: var(--muted-strong); }
 .briefing-line--why dt    { color: var(--accent-strong); }
 .briefing-line--step dt   { color: var(--warning); }
+.briefing-line--route dt  { color: var(--tvk-red-deep); }
 
 .briefing-line dd {
   margin: 0;
   font-size: var(--font-size-7);
   line-height: 1.42;
   color: var(--ink);
+}
+
+/* Action playbook — collapsible defensive brief for negative / people issues */
+.action-playbook {
+  margin: 4px 0;
+  padding: 0;
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--warning);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.action-playbook > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: var(--font-size-9);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--warning);
+  user-select: none;
+}
+
+.action-playbook[open] > summary { border-bottom: 1px solid var(--line); }
+
+.playbook-block {
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+}
+.playbook-block:first-of-type { border-top: 0; }
+
+.playbook-block h5 {
+  margin: 0 0 6px;
+  font-size: var(--font-size-9);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-strong);
+}
+
+.playbook-block--risk h5  { color: var(--warning); }
+.playbook-block--verify h5 { color: var(--accent-strong); }
+.playbook-block--draft h5  { color: var(--tvk-red-deep); }
+
+.playbook-block p {
+  margin: 0;
+  font-size: var(--font-size-7);
+  line-height: 1.42;
+  color: var(--ink);
+}
+
+.playbook-block ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 3px;
+}
+
+.playbook-block li {
+  font-size: var(--font-size-7);
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.playbook-block .draft-original {
+  margin-top: 6px;
+  font-family: "Noto Serif Tamil", serif;
+  color: var(--muted-strong);
 }
 
 /* Tamil evidence pullquote — VDOE governance-note feel, tinted accent */
@@ -1642,6 +1720,17 @@ body:not(.view-table) .narrative-table-wrap { display: none; }
   border: 1px solid var(--warning-200);
 }
 .ai-quality-banner a { color: var(--warning-700); text-decoration: underline; }
+
+.quality-issue-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--ink);
+}
+
+.quality-issue-list li {
+  margin-top: 4px;
+  line-height: 1.35;
+}
 
 .card-correct {
   position: relative;

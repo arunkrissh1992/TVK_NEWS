@@ -108,13 +108,18 @@ Return JSON only. No prose before or after. The JSON must have exactly these key
 {
   "government_relevance": "high" | "medium" | "low" | "none",
   "stance_toward_government": "positive" | "negative" | "neutral" | "mixed",
+  "tvk_relevance": "high" | "medium" | "low" | "none",
+  "tvk_portrayal": "positive" | "negative" | "neutral" | "mixed",
   "sentiment": "positive" | "negative" | "neutral",
   "target": "string (who the article is about — TVK leadership, Tamil Nadu Government, a minister, a community, etc.)",
+  "political_actors": ["array of explicitly mentioned actors: TVK, Vijay, MLAs, ministers, Chief Minister, departments, parties, officials"],
   "department": "string (the relevant department or 'general')",
   "district": "string (a TN district name or 'unspecified')",
   "scheme": "string or null (named government scheme only if explicitly mentioned)",
   "topic": "string (3-6 word phrase summarising the story)",
   "issue_category": "string (welfare | concern | listing | out-of-scope | general)",
+  "people_issue": "boolean (true when ordinary people face or benefit from a public matter)",
+  "public_issue": "string (2-6 word issue label; empty string if not a public issue)",
   "severity": "low" | "medium" | "high" | "critical",
   "summary_original": "string (one factual sentence, original language, <= 22 words)",
   "summary_english": "string (same sentence in English, <= 22 words; empty string if article is not in English and translation would distort)",
@@ -122,6 +127,14 @@ Return JSON only. No prose before or after. The JSON must have exactly these key
   "people_impact": "string (what ordinary people are facing or benefiting from; empty string if not applicable)",
   "root_cause": "string (the underlying WHY — concrete driver; empty string only if no causal signal)",
   "recommended_step": "string (one concrete action; empty string if no action warranted)",
+  "action_owner": "string (who should own the follow-up)",
+  "action_type": "string (monitor | amplify | field_verification | public_statement | internal_review | legal_review | escalation | policy_research)",
+  "action_priority": "low" | "medium" | "high" | "critical",
+  "risk_if_ignored": "string (what worsens if the leadership does nothing; empty unless negative or people-issue)",
+  "talking_points": ["array of 2-3 short defensible public lines; empty unless negative or people-issue"],
+  "verification_checklist": ["array of 2-3 concrete facts to confirm before acting; empty unless negative or people-issue"],
+  "draft_statement_original": "string (2-3 careful sentences, original language, conceding nothing unverified; empty unless negative or people-issue)",
+  "draft_statement_english": "string (English version of the draft statement; empty unless negative or people-issue)",
   "positive_points": ["array of 0-2 short positive bullet phrases"],
   "negative_points": ["array of 0-2 short negative bullet phrases"],
   "evidence_quotes_original": ["array of 1-2 short verbatim quotes from the article"],
@@ -141,24 +154,59 @@ You are preparing a 30-second daily intelligence briefing for the Tamilaga
 Vettri Kazhagam (TVK) party leadership office, from a Tamil Nadu newspaper
 article. The leader's decision loop is: WHAT happened → WHY → SO WHAT → WHAT NOW.
 
+Who counts as TVK: Vijay, the party organisation and its cadre, AND any TVK
+members who hold public office — MLAs, ministers, or the Chief Minister. The
+official conduct of a TVK office-holder counts as TVK activity. People from
+other parties (DMK, AIADMK, BJP, NTK, PMK) are NOT TVK even when they hold
+office; their conduct never sets tvk_portrayal to positive or negative.
+
+Score tvk_portrayal and stance_toward_government as TWO independent axes — when
+TVK runs the government they usually agree, but a bureaucratic lapse with no TVK
+person named is government-negative while tvk_portrayal stays neutral.
+
 Required briefing fields:
-  1. stance_toward_government — positive | negative | mixed | neutral, toward
-     the Tamil Nadu Government in office (DMK-led). Not toward TVK.
-  2. party_action — what TVK members / leadership did, well or badly,
+  1. tvk_portrayal — positive | negative | mixed | neutral, the HEADLINE label:
+     how the news reflects on TVK, Vijay, the party, or a TVK office-holder.
+     positive = good news (scheme delivered, praise, decisive response);
+     negative = failure, broken promise, scandal, or a governance lapse on a
+     TVK office-holder's watch. neutral if no TVK person is portrayed.
+  2. tvk_relevance — high when TVK, Vijay, or a TVK member is directly
+     involved; medium when it is a people issue or political opening TVK may
+     need to act on; low for background TN context; none for out-of-scope.
+  3. stance_toward_government — positive | negative | mixed | neutral toward the
+     Tamil Nadu administration in office, judged as an institution.
+  4. people_issue — true for welfare, civic services, livelihood, safety,
+     health, education, law/order, corruption, farmers, youth, women, etc.
+  5. political_actors — explicitly mentioned TVK, Vijay, party members, MLAs,
+     ministers, Chief Minister, departments, parties, or officials. No invention.
+  6. party_action — what TVK members / leadership did, well or badly,
      as reported. Empty string if the article is not about TVK.
-  3. people_impact — what ordinary people in the relevant area are facing or
+  7. people_impact — what ordinary people in the relevant area are facing or
      benefiting from. Empty string if not applicable.
-  4. root_cause — the underlying WHY: the policy gap, decision, event, or
+  8. public_issue — 2-6 word issue label. Empty if there is no people issue.
+  9. root_cause — the underlying WHY: the policy gap, decision, event, or
      structural condition driving what the article reports. Concrete.
-  5. recommended_step — one concrete action the leadership office could
+  10. recommended_step — one concrete action the leadership office could
      consider (visit, statement, relief, internal review of a member,
      public response, fact-finding, etc.). Empty string if no action is
      clearly warranted by the evidence.
+  11. action_owner, action_type, action_priority — route the follow-up to a
+      concrete owner using only evidence-backed action.
+  12. ACTION PLAYBOOK (negative or people-issue articles only) — risk_if_ignored,
+      talking_points (2-3 lines), verification_checklist (2-3 facts to confirm),
+      and draft_statement_original / draft_statement_english (2-3 careful
+      sentences conceding nothing unverified). Leave ALL of these empty for
+      positive, neutral, or out-of-scope rows.
 
 Tone rules:
 - One sentence per briefing field. Each field ≤ 22 words.
 - Plain language. Avoid corporate jargon, hype, rhetoric.
 - Do not invent facts. If the article does not warrant a field, leave it "".
+- Do not write generic next steps such as "address the concern" or "take
+  appropriate action". Name a concrete owner, verification target, and action
+  route, or set action_type = "monitor".
+- For public harm or civic issues, recommended_step must name what to verify
+  locally before any public statement.
 - Preserve any Tamil quotation in evidence_quotes_original verbatim.
 - For allegations or sensitive claims, set needs_human_review = true.
 
@@ -364,13 +412,18 @@ def _backfill_defaults(payload: dict[str, Any], item: NormalizedItem) -> None:
     """
     payload.setdefault("government_relevance", "low")
     payload.setdefault("stance_toward_government", "neutral")
+    payload.setdefault("tvk_relevance", payload.get("government_relevance") or "low")
+    payload.setdefault("tvk_portrayal", "neutral")
     payload.setdefault("sentiment", "neutral")
     payload.setdefault("target", "Public matter")
+    payload.setdefault("political_actors", [])
     payload.setdefault("department", "general")
     payload.setdefault("district", "unspecified")
     payload.setdefault("scheme", None)
     payload.setdefault("topic", _truncate(item.title or "news item", 80))
     payload.setdefault("issue_category", "general")
+    payload.setdefault("people_issue", False)
+    payload.setdefault("public_issue", "")
     payload.setdefault("severity", "low")
     payload.setdefault("summary_original", _first_sentence(item.clean_text_original or "") or "")
     payload.setdefault("summary_english", "")
@@ -378,6 +431,14 @@ def _backfill_defaults(payload: dict[str, Any], item: NormalizedItem) -> None:
     payload.setdefault("people_impact", "")
     payload.setdefault("root_cause", "")
     payload.setdefault("recommended_step", "")
+    payload.setdefault("action_owner", "")
+    payload.setdefault("action_type", "monitor")
+    payload.setdefault("action_priority", payload.get("severity") or "low")
+    payload.setdefault("risk_if_ignored", "")
+    payload.setdefault("talking_points", [])
+    payload.setdefault("verification_checklist", [])
+    payload.setdefault("draft_statement_original", "")
+    payload.setdefault("draft_statement_english", "")
     payload.setdefault("positive_points", [])
     payload.setdefault("negative_points", [])
     payload.setdefault("evidence_quotes_original", [])
@@ -391,6 +452,9 @@ def _backfill_defaults(payload: dict[str, Any], item: NormalizedItem) -> None:
         "negative_points",
         "evidence_quotes_original",
         "evidence_quotes_english",
+        "political_actors",
+        "talking_points",
+        "verification_checklist",
     ):
         if payload.get(key) is None:
             payload[key] = []
@@ -404,12 +468,18 @@ def _backfill_defaults(payload: dict[str, Any], item: NormalizedItem) -> None:
         "people_impact",
         "root_cause",
         "recommended_step",
+        "public_issue",
+        "action_owner",
+        "action_type",
         "target",
         "department",
         "district",
         "topic",
         "issue_category",
         "summary_original",
+        "risk_if_ignored",
+        "draft_statement_original",
+        "draft_statement_english",
     )
     _NULL_STRING_MARKERS = {"none", "n/a", "null", "не применимо"}
     for key in _OPTIONAL_STR_FIELDS:

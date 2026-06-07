@@ -42,10 +42,13 @@ def _stance_label(stance: str | None) -> str:
         "negative": "Negative / எதிர்மறை",
         "mixed": "Mixed / கலப்பு",
         "neutral": "Neutral / நடுநிலை",
+        "people": "People Issue / மக்கள் பிரச்சனை",
     }.get(stance or "", "Review / மதிப்பாய்வு")
 
 
 def _portrayal_kind(stance: str | None) -> str:
+    if stance == "people":
+        return "people"
     if stance == "positive":
         return "positive"
     if stance == "negative":
@@ -53,6 +56,23 @@ def _portrayal_kind(stance: str | None) -> str:
     if stance == "mixed":
         return "mixed"
     return "neutral"
+
+
+def _tvk_portrayal_value(value: str | None, fallback: str | None = None) -> str:
+    value = (value or "").lower()
+    if value in {"positive", "negative", "mixed", "neutral"}:
+        return value
+    fallback = (fallback or "").lower()
+    if fallback in {"positive", "negative", "mixed", "neutral"}:
+        return fallback
+    return "neutral"
+
+
+def _display_category(*, tvk_portrayal: str | None, people_issue: bool) -> str:
+    portrayal = _tvk_portrayal_value(tvk_portrayal)
+    if people_issue and portrayal == "neutral":
+        return "people"
+    return portrayal
 
 
 def _display_list(values: list[str] | None, *, fallback: str = "") -> list[str]:
@@ -80,6 +100,20 @@ def _utc_sort_key(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _is_openai_model(model_name: str | None) -> bool:
+    name = (model_name or "").lower()
+    return name.startswith(("gpt-", "gpt", "o1", "o3", "o4"))
+
+
+def _is_semantic_model(model_name: str | None) -> bool:
+    name = (model_name or "").lower()
+    return _is_openai_model(name) or "gemma" in name or "sentence-transformers" in name or "indic-bert" in name
+
+
+def _is_fallback_model(model_name: str | None) -> bool:
+    return not _is_semantic_model(model_name)
 
 
 def get_dashboard_summary(session: Session) -> dict[str, Any]:
@@ -111,6 +145,11 @@ def get_dashboard_summary(session: Session) -> dict[str, Any]:
         row for row in dedup_by_raw.values()
         if (row.government_relevance or "").lower() != "none"
     ]
+    latest_models = [row.model_name for row in unique_analyses]
+    tvk_portrayals = [
+        _tvk_portrayal_value(row.tvk_portrayal, row.stance_toward_government)
+        for row in unique_analyses
+    ]
     source_counts = _count_values([row.source_name for row in items])
     model_counts = _count_values([row.model_name for row in analyses])
     embedding_provider_counts = _count_values(
@@ -124,7 +163,10 @@ def get_dashboard_summary(session: Session) -> dict[str, Any]:
         "source_count": len(source_counts),
         "total_chunks": session.scalar(select(func.count()).select_from(DocumentChunkRecord)) or 0,
         "total_embeddings": len(embeddings),
-        "openai_analyses": sum(1 for row in analyses if row.model_name != "mock"),
+        "openai_analyses": sum(1 for model_name in latest_models if _is_openai_model(model_name)),
+        "semantic_analyses": sum(1 for model_name in latest_models if _is_semantic_model(model_name)),
+        "fallback_analyses": sum(1 for model_name in latest_models if _is_fallback_model(model_name)),
+        "keyword_analyses": sum(1 for model_name in latest_models if model_name == "local-tamil-keywords"),
         "mock_analyses": model_counts.get("mock", 0),
         "needs_human_review": sum(1 for row in unique_analyses if row.needs_human_review),
         "reviewed": len(reviewed_analysis_ids),
@@ -133,16 +175,12 @@ def get_dashboard_summary(session: Session) -> dict[str, Any]:
             for row in unique_analyses
             if row.needs_human_review and row.id not in reviewed_analysis_ids
         ),
-        "positive_count": sum(1 for row in unique_analyses if row.stance_toward_government == "positive"),
-        "negative_count": sum(1 for row in unique_analyses if row.stance_toward_government == "negative"),
-        "mixed_count": sum(1 for row in unique_analyses if row.stance_toward_government == "mixed"),
-        "neutral_count": sum(1 for row in unique_analyses if row.stance_toward_government == "neutral"),
-        "people_issue_count": sum(
-            1
-            for row in unique_analyses
-            if row.stance_toward_government in {"negative", "mixed"} or row.needs_human_review
-        ),
-        "stance_counts": _count_values([row.stance_toward_government for row in unique_analyses]),
+        "positive_count": sum(1 for value in tvk_portrayals if value == "positive"),
+        "negative_count": sum(1 for value in tvk_portrayals if value == "negative"),
+        "mixed_count": sum(1 for value in tvk_portrayals if value == "mixed"),
+        "neutral_count": sum(1 for value in tvk_portrayals if value == "neutral"),
+        "people_issue_count": sum(1 for row in unique_analyses if row.people_issue),
+        "stance_counts": _count_values(tvk_portrayals),
         "severity_counts": _count_values([row.severity for row in unique_analyses]),
         "department_counts": _count_values([row.department for row in unique_analyses]),
         "district_counts": _count_values([row.district for row in unique_analyses]),
@@ -201,6 +239,12 @@ def list_review_queue(session: Session, *, limit: int = 50) -> list[dict[str, An
                 "summary": analysis.summary_english or analysis.summary_original,
                 "confidence": analysis.confidence,
                 "evidence": analysis.evidence_quotes_english or analysis.evidence_quotes_original,
+                "recommended_step": (analysis.recommended_step or "").strip(),
+                "risk_if_ignored": (analysis.risk_if_ignored or "").strip(),
+                "talking_points": list(analysis.talking_points or []),
+                "verification_checklist": list(analysis.verification_checklist or []),
+                "draft_statement_original": (analysis.draft_statement_original or "").strip(),
+                "draft_statement_english": (analysis.draft_statement_english or "").strip(),
             }
         )
     return queue
@@ -288,7 +332,7 @@ def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, An
                 }
             )
 
-        stance = cluster.dominant_stance
+        tvk_portrayal = _tvk_portrayal_value(rep.tvk_portrayal, rep.stance)
         # Operator correction wins over AI classification.
         member_ids = [m.raw_item_id for m in cluster.members]
         operator_corrected = next(
@@ -296,7 +340,12 @@ def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, An
             None,
         )
         if operator_corrected:
-            stance = operator_corrected
+            tvk_portrayal = operator_corrected
+        people_issue = any(m.people_issue for m in cluster.members)
+        display_category = _display_category(
+            tvk_portrayal=tvk_portrayal,
+            people_issue=people_issue,
+        )
 
         payloads.append(
             {
@@ -308,12 +357,22 @@ def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, An
                 "title": rep.title,
                 "published_at": cluster.latest_published_at or rep.published_at,
                 "language": "ta",  # rep language not tracked — Tamil-default
-                "stance": stance,
-                "stance_label": _stance_label(stance),
-                "portrayal_kind": _portrayal_kind(stance),
+                "stance": tvk_portrayal,
+                "government_stance": rep.stance,
+                "tvk_portrayal": tvk_portrayal,
+                "tvk_relevance": rep.tvk_relevance,
+                "display_category": display_category,
+                "stance_label": _stance_label(display_category),
+                "portrayal_kind": _portrayal_kind(display_category),
                 "stance_breakdown": cluster.stance_breakdown,
-                "severity": None,
+                "severity": rep.action_priority or None,
                 "target": None,
+                "people_issue": people_issue,
+                "public_issue": rep.public_issue,
+                "political_actors": rep.political_actors,
+                "action_owner": rep.action_owner,
+                "action_type": rep.action_type,
+                "action_priority": rep.action_priority,
                 "department": rep.department,
                 "district": rep.district,
                 "summary_original": rep.summary_original,
@@ -323,6 +382,11 @@ def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, An
                 "people_impact": (rep.people_impact or "").strip(),
                 "root_cause": (rep.root_cause or "").strip(),
                 "recommended_step": (rep.recommended_step or "").strip(),
+                "risk_if_ignored": (rep.risk_if_ignored or "").strip(),
+                "talking_points": list(rep.talking_points or []),
+                "verification_checklist": list(rep.verification_checklist or []),
+                "draft_statement_original": (rep.draft_statement_original or "").strip(),
+                "draft_statement_english": (rep.draft_statement_english or "").strip(),
                 "positive_points": [],
                 "negative_points": [],
                 "evidence_original": rep_evidence,

@@ -81,18 +81,38 @@
 
     <main class="shell main-shell">
 
-      {% if summary.openai_analyses == 0 and summary.mock_analyses > 0 %}
+      {% if summary.semantic_analyses == 0 and summary.fallback_analyses > 0 %}
         <section class="ai-quality-banner" aria-label="AI quality notice">
           <i class="fa-light fa-triangle-exclamation" aria-hidden="true"></i>
           <div class="ai-quality-banner-body">
-            <strong>Mock AI mode active.</strong>
+            <strong>Context AI is not active.</strong>
             <span>
-              All stance labels and briefing lines on this dashboard came from a keyword-matching mock
-              analyser, not real AI. Some classifications will be wrong &mdash; please correct them via the
-              <em>"Mark as &hellip;"</em> menu on each card. To run real AI: top up the OpenAI key in
-              <a href="/settings">Operator Settings</a> and click
-              <em>Pull Latest</em>; or finish installing <code>torch</code> for offline IndicBERT.
+              The active cards came from a keyword fallback, not a semantic LLM.
+              Treat the `Why`, `Next step`, and `Route` lines as evidence-bound draft recommendations
+              until OpenAI or Ollama is configured. Correct doubtful cards from the card menu.
             </span>
+          </div>
+        </section>
+      {% endif %}
+
+      {% if quality_issues %}
+        <section class="ai-quality-banner ai-quality-banner--audit" aria-label="Analysis quality warnings">
+          <i class="fa-light fa-shield-exclamation" aria-hidden="true"></i>
+          <div class="ai-quality-banner-body">
+            <strong>Analysis quality warnings found.</strong>
+            <span>
+              {{ quality_issues|length }} latest analysis record{{ '' if quality_issues|length == 1 else 's' }}
+              need review or reanalysis. The audit checks serious people issues, TVK relevance, and generic next steps.
+            </span>
+            <ul class="quality-issue-list">
+              {% for issue in quality_issues[:3] %}
+                <li>
+                  <b>{{ issue.issue_code.replace('_', ' ') }}</b>
+                  &middot; {{ issue.source_name }}
+                  &middot; {{ issue.title }}
+                </li>
+              {% endfor %}
+            </ul>
           </div>
         </section>
       {% endif %}
@@ -327,6 +347,7 @@
               data-raw-id="{{ item.raw_item_id }}"
               data-analysis-id="{{ item.analysis_id }}"
               data-stance="{{ item.stance }}"
+              data-people-issue="{{ 'true' if item.people_issue else 'false' }}"
               data-source="{{ item.source_name }}"
               data-needs-review="{{ 'true' if item.needs_human_review else 'false' }}"
               data-published-at="{{ (item.published_at or item.ingested_at).isoformat() if (item.published_at or item.ingested_at) else '' }}"
@@ -344,6 +365,10 @@
                 {% endif %}
                 <span class="byline-sep" aria-hidden="true">&middot;</span>
                 <span class="byline-stance">{{ item.stance_label.split(' / ')[0] }}</span>
+                {% if item.public_issue and item.portrayal_kind != 'people' %}
+                  <span class="byline-sep" aria-hidden="true">&middot;</span>
+                  <span class="byline-issue">{{ item.public_issue }}</span>
+                {% endif %}
               </header>
               {% if item.is_consolidated %}
                 <ul class="card-sources" aria-label="Newspapers covering this story">
@@ -364,6 +389,12 @@
 
               {% if item.party_action or item.people_impact or item.root_cause or item.recommended_step %}
                 <dl class="briefing-lines" aria-label="Briefing lines">
+                  {% if item.public_issue %}
+                    <div class="briefing-line briefing-line--people">
+                      <dt><i class="fa-light fa-triangle-exclamation" aria-hidden="true"></i><span>Issue</span></dt>
+                      <dd>{{ item.public_issue }}</dd>
+                    </div>
+                  {% endif %}
                   {% if item.party_action %}
                     <div class="briefing-line briefing-line--party">
                       <dt><i class="fa-light fa-flag" aria-hidden="true"></i><span>Party</span></dt>
@@ -388,7 +419,52 @@
                       <dd>{{ item.recommended_step }}</dd>
                     </div>
                   {% endif %}
+                  {% if item.action_owner or item.action_type %}
+                    <div class="briefing-line briefing-line--route">
+                      <dt><i class="fa-light fa-route" aria-hidden="true"></i><span>Route</span></dt>
+                      <dd>
+                        {{ item.action_owner or "Media monitoring desk" }}
+                        {% if item.action_type %}&middot; {{ item.action_type.replace('_', ' ') }}{% endif %}
+                        {% if item.action_priority %}&middot; {{ item.action_priority }} priority{% endif %}
+                      </dd>
+                    </div>
+                  {% endif %}
                 </dl>
+              {% endif %}
+
+              {% if item.risk_if_ignored or item.talking_points or item.verification_checklist or item.draft_statement_english or item.draft_statement_original %}
+                <details class="action-playbook">
+                  <summary><i class="fa-light fa-clipboard-list" aria-hidden="true"></i>&nbsp;Action playbook</summary>
+                  {% if item.risk_if_ignored %}
+                    <div class="playbook-block playbook-block--risk">
+                      <h5><i class="fa-light fa-triangle-exclamation" aria-hidden="true"></i>&nbsp;Risk if ignored</h5>
+                      <p>{{ item.risk_if_ignored }}</p>
+                    </div>
+                  {% endif %}
+                  {% if item.verification_checklist %}
+                    <div class="playbook-block playbook-block--verify">
+                      <h5><i class="fa-light fa-list-check" aria-hidden="true"></i>&nbsp;Verify first</h5>
+                      <ul>
+                        {% for check in item.verification_checklist %}<li>{{ check }}</li>{% endfor %}
+                      </ul>
+                    </div>
+                  {% endif %}
+                  {% if item.talking_points %}
+                    <div class="playbook-block playbook-block--talk">
+                      <h5><i class="fa-light fa-comment" aria-hidden="true"></i>&nbsp;Talking points</h5>
+                      <ul>
+                        {% for point in item.talking_points %}<li>{{ point }}</li>{% endfor %}
+                      </ul>
+                    </div>
+                  {% endif %}
+                  {% if item.draft_statement_english or item.draft_statement_original %}
+                    <div class="playbook-block playbook-block--draft">
+                      <h5><i class="fa-light fa-pen-nib" aria-hidden="true"></i>&nbsp;Draft statement</h5>
+                      {% if item.draft_statement_english %}<p>{{ item.draft_statement_english }}</p>{% endif %}
+                      {% if item.draft_statement_original %}<p class="draft-original">{{ item.draft_statement_original }}</p>{% endif %}
+                    </div>
+                  {% endif %}
+                </details>
               {% endif %}
 
               {% if item.evidence_original %}
@@ -453,6 +529,7 @@
                   data-raw-id="{{ item.raw_item_id }}"
                   data-analysis-id="{{ item.analysis_id }}"
                   data-stance="{{ item.stance }}"
+                  data-people-issue="{{ 'true' if item.people_issue else 'false' }}"
                   data-source="{{ item.source_name }}"
                   data-needs-review="{{ 'true' if item.needs_human_review else 'false' }}"
                   data-published-at="{{ (item.published_at or item.ingested_at).isoformat() if (item.published_at or item.ingested_at) else '' }}"

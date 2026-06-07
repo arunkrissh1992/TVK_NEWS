@@ -99,8 +99,7 @@
       negative: (r) => r.dataset.stance === "negative",
       mixed: (r) => r.dataset.stance === "mixed",
       people: (r) =>
-        r.dataset.stance === "negative" ||
-        r.dataset.stance === "mixed" ||
+        r.dataset.peopleIssue === "true" ||
         r.dataset.needsReview === "true",
     };
 

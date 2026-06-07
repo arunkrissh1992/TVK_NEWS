@@ -38,10 +38,18 @@ import re
 from typing import Any
 
 from tnmi.ai import (
+    _action_owner,
+    _action_type,
+    _brief_article_focus,
+    _contextual_recommended_step,
+    _contextual_root_cause,
+    _extract_political_actors,
     _first_sentence,
     _looks_like_listing_page,
     _looks_like_tn_content,
     _not_relevant_analysis,
+    _people_issue_severity,
+    _public_issue_profile,
     _truncate,
 )
 from tnmi.contracts import (
@@ -117,28 +125,46 @@ _indictrans = _LazyHFLoader(_INDICTRANS_CHECKPOINT)
 # When we have the corpus we swap _classify_with_keywords for a trained head.
 
 _TVK_TOKENS_TA = ("தவெக", "தமிழக வெற்றி", "விஜய்", "தலைவர் விஜய்", "திருவாளர் விஜய்")
+_TVK_TOKENS_EN = ("tvk", "tamilaga vettri", "vijay")
 _GOV_TOKENS_TA = (
     "தமிழக அரசு", "மாநில அரசு", "முதலமைச்சர்", "முதல்வர்", "ஸ்டாலின்",
     "எம்.கே.ஸ்டாலின்", "உதயநிதி", "திமுக", "தி.மு.க", "அமைச்சர்",
     "மாவட்ட ஆட்சியர்", "மாவட்ட காவல் கண்காணிப்பாளர்",
+    "tamil nadu government", "tn government", "government", "chief minister",
+    "minister", "collector", "corporation commissioner", "officials",
 )
 _POSITIVE_TOKENS_TA = (
     "திட்டம்", "திட்டத்தை", "வரவேற்பு", "வரவேற்றார்", "நன்றி", "பாராட்டு",
     "உதவித்தொகை", "ஆதரவு", "முன்னேற்றம்", "மேம்பாடு", "தீர்வு", "வெளியீடு",
+    "scheme", "welcome", "praised", "support", "benefit", "relief", "approved",
 )
 _NEGATIVE_TOKENS_TA = (
     "எதிர்ப்பு", "கண்டனம்", "புகார்", "ஊழல்", "மோசடி", "சேதம்", "பாதிப்பு",
     "மரணம்", "இறப்பு", "கைது", "தாக்குதல்", "வன்முறை", "போராட்டம்",
     "வேலைநிறுத்தம்", "எதிர்ப்பு தெரிவிக்க", "கசை அடி", "ஊழியர் பற்றாக்குறை",
+    "தீ விபத்து", "தீவிபத்து", "விபத்து", "காயம்", "உயிரிழப்பு",
+    "protest", "complaint", "scam", "corruption", "fire", "accident", "killed",
+    "death", "fatal", "violence", "attack", "shortage", "unsafe", "damaged",
 )
 _PEOPLE_ISSUE_TOKENS_TA = (
     "மக்கள்", "பொதுமக்கள்", "நிவாரணம்", "வீடு", "குடிநீர்", "மின்சாரம்",
-    "சாலை", "கழிவுநீர்", "மருத்துவம்", "கல்வி", "தொழில்", "வேலை",
+    "சாலை", "கழிவுநீர்", "மருத்துவம்", "மருத்துவமனை", "கல்வி", "பள்ளி",
+    "மாணவர்", "மாணவி", "தீ விபத்து", "தீவிபத்து", "விபத்து", "காயம்", "பாதுகாப்பு",
+    "தொழில்", "வேலை",
+    "people", "public", "resident", "residents", "water", "power", "road",
+    "hospital", "health", "medical", "school", "student", "students", "fire",
+    "accident", "death", "killed", "safety", "jobs", "employment", "farmers",
 )
 
 
 def _has_any(text: str, tokens: tuple[str, ...]) -> bool:
     return any(token in text for token in tokens)
+
+
+def _has_tvk_reference(text_lower: str, text_original: str) -> bool:
+    english_match = any(re.search(rf"\b{re.escape(token)}\b", text_lower) for token in _TVK_TOKENS_EN)
+    tamil_match = _has_any(text_original, _TVK_TOKENS_TA)
+    return english_match or tamil_match
 
 
 def _classify_with_keywords(item: NormalizedItem) -> dict[str, Any]:
@@ -147,12 +173,13 @@ def _classify_with_keywords(item: NormalizedItem) -> dict[str, Any]:
     title = (item.title or "").strip()
     body = (item.clean_text_original or "").strip()
     text = f"{title}\n{body}"
+    text_lower = text.lower()
 
-    is_party = _has_any(text, _TVK_TOKENS_TA)
-    is_government = _has_any(text, _GOV_TOKENS_TA)
-    positive = _has_any(text, _POSITIVE_TOKENS_TA)
-    negative = _has_any(text, _NEGATIVE_TOKENS_TA)
-    people = _has_any(text, _PEOPLE_ISSUE_TOKENS_TA)
+    is_party = _has_tvk_reference(text_lower, text)
+    is_government = _has_any(text_lower, _GOV_TOKENS_TA)
+    positive = _has_any(text_lower, _POSITIVE_TOKENS_TA)
+    negative = _has_any(text_lower, _NEGATIVE_TOKENS_TA)
+    people = _has_any(text_lower, _PEOPLE_ISSUE_TOKENS_TA)
 
     if positive and not negative:
         stance = Stance.POSITIVE
@@ -237,6 +264,16 @@ class LocalTamilAnalyzer:
         cls = _classify_with_keywords(item)
         stance = cls["stance"]
         relevance = cls["relevance"]
+        people_issue = bool(cls["people"] or cls["negative"])
+        issue_profile = _public_issue_profile(title, body) if people_issue else None
+        issue_severity = issue_profile.severity if issue_profile else Severity.LOW
+        tvk_relevance = (
+            GovernmentRelevance.HIGH if cls["is_party"]
+            else GovernmentRelevance.MEDIUM if people_issue or cls["is_government"]
+            else GovernmentRelevance.LOW
+        )
+        tvk_portrayal = stance if cls["is_party"] else Stance.NEUTRAL
+        actors = _extract_political_actors(title, body)
 
         first_sentence_orig = _first_sentence(body) or title
         evidence_quote = _first_sentence(body) or title
@@ -244,16 +281,77 @@ class LocalTamilAnalyzer:
         recommended = ""
         root_cause = ""
         if stance == Stance.NEGATIVE:
-            recommended = "Address the concern raised in the report through the appropriate department."
-            root_cause = "Reported public grievance or critical event covered in the article."
+            if issue_profile:
+                recommended = _contextual_recommended_step(
+                    issue_profile,
+                    title=title,
+                    evidence_quote=evidence_quote,
+                )
+                root_cause = _contextual_root_cause(
+                    issue_profile,
+                    evidence_quote=evidence_quote,
+                )
+            else:
+                focus = _brief_article_focus(title, evidence_quote)
+                recommended = f"Media team: verify the allegation and named actor in '{focus}' before any response."
+                root_cause = f"Evidence reports criticism or allegation: {_truncate(evidence_quote, 160)}"
+        elif people_issue:
+            if issue_profile:
+                recommended = _contextual_recommended_step(
+                    issue_profile,
+                    title=title,
+                    evidence_quote=evidence_quote,
+                )
+                root_cause = _contextual_root_cause(
+                    issue_profile,
+                    evidence_quote=evidence_quote,
+                )
         elif stance == Stance.POSITIVE:
-            recommended = "Acknowledge the development publicly if a TVK position is warranted."
-            root_cause = "Reported government scheme or supportive action covered in the article."
+            focus = _brief_article_focus(title, evidence_quote)
+            root_cause = f"Evidence reports a positive development: {_truncate(evidence_quote, 160)}"
+            if cls["is_party"]:
+                recommended = f"TVK media team: amplify the reported party action in '{focus}' after source check."
         elif stance == Stance.MIXED:
-            recommended = "Track the development and prepare a measured public response if needed."
-            root_cause = "Article contains both supportive and critical signals; balanced framing required."
+            focus = _brief_article_focus(title, evidence_quote)
+            recommended = f"Media team: verify both supportive and critical claims in '{focus}' before response."
+            root_cause = f"Evidence carries mixed signals: {_truncate(evidence_quote, 160)}"
         elif cls["is_government"]:
-            root_cause = "Government activity reported in the article."
+            root_cause = f"Evidence reports government activity: {_truncate(evidence_quote, 160)}"
+
+        # Action playbook — only for negative or people-issue rows.
+        risk_if_ignored = ""
+        talking_points: list[str] = []
+        verification_checklist: list[str] = []
+        draft_statement_original = ""
+        draft_statement_english = ""
+        if stance == Stance.NEGATIVE or (people_issue and stance != Stance.POSITIVE):
+            focus = _brief_article_focus(title, evidence_quote)
+            if stance == Stance.NEGATIVE and cls["is_party"]:
+                risk_if_ignored = (
+                    "Unanswered criticism of a TVK office-holder hardens into the "
+                    "dominant narrative and is amplified by rivals."
+                )
+            elif stance == Stance.NEGATIVE:
+                risk_if_ignored = (
+                    "An unaddressed allegation spreads unchecked and is used to "
+                    "question the government's competence."
+                )
+            else:
+                risk_if_ignored = (
+                    "An unmet public grievance escalates locally and erodes trust "
+                    "in the administration's responsiveness."
+                )
+            verification_checklist = [
+                "Confirm the named people, location and date against a second source.",
+                "Check whether any official or department response already exists.",
+                "Assess whether the reported impact is ongoing or already resolved.",
+            ]
+            talking_points = [
+                f"Acknowledge the concern in '{focus}' without conceding unverified claims.",
+                "Point to the verification under way before any public commitment.",
+            ]
+            if first_sentence_orig:
+                draft_statement_original = _truncate(first_sentence_orig, 200)
 
         # Confidence: higher when we actually loaded the embedding model.
         confidence = 0.78 if self.model_name.startswith("ai4bharat") else 0.65
@@ -261,6 +359,8 @@ class LocalTamilAnalyzer:
         return AIAnalysis(
             government_relevance=relevance,
             stance_toward_government=stance,
+            tvk_relevance=tvk_relevance,
+            tvk_portrayal=tvk_portrayal,
             sentiment=(
                 Sentiment.POSITIVE if stance == Stance.POSITIVE
                 else Sentiment.NEGATIVE if stance == Stance.NEGATIVE
@@ -269,18 +369,22 @@ class LocalTamilAnalyzer:
             target="TVK leadership" if cls["is_party"] else (
                 "Tamil Nadu Government" if cls["is_government"] else "Public matter"
             ),
+            political_actors=actors,
             department="general",
             district="unspecified",
             scheme=None,
             topic=title or "news item",
             issue_category=(
-                "welfare" if stance == Stance.POSITIVE
+                issue_profile.issue_category if issue_profile
+                else "welfare" if stance == Stance.POSITIVE
                 else "concern" if stance == Stance.NEGATIVE
                 else "general"
             ),
+            people_issue=people_issue,
+            public_issue=issue_profile.public_issue if issue_profile else "",
             severity=(
                 Severity.HIGH if stance == Stance.NEGATIVE
-                else Severity.LOW
+                else issue_severity
             ),
             summary_original=_truncate(first_sentence_orig or "", 220),
             summary_english="",  # Translation requires IndicTrans2 — Phase C-finish.
@@ -291,15 +395,32 @@ class LocalTamilAnalyzer:
             ),
             people_impact=(
                 _truncate(first_sentence_orig, 180)
-                if cls["people"] and not cls["is_party"]
+                if people_issue and not cls["is_party"]
                 else ""
             ),
             root_cause=root_cause,
             recommended_step=recommended,
+            action_owner=issue_profile.action_owner if issue_profile else _action_owner(
+                is_party=cls["is_party"],
+                people_issue=people_issue,
+                is_government=cls["is_government"],
+            ),
+            action_type=issue_profile.action_type if issue_profile else _action_type(
+                stance=stance,
+                is_party=cls["is_party"],
+                people_issue=people_issue,
+            ),
+            action_priority=Severity.HIGH if stance == Stance.NEGATIVE else issue_severity,
+            risk_if_ignored=risk_if_ignored,
+            talking_points=talking_points,
+            verification_checklist=verification_checklist,
+            draft_statement_original=draft_statement_original,
+            draft_statement_english=draft_statement_english,
             positive_points=[_truncate(first_sentence_orig, 140)] if cls["positive"] else [],
             negative_points=[_truncate(first_sentence_orig, 140)] if cls["negative"] else [],
             evidence_quotes_original=[_truncate(evidence_quote, 240)] if evidence_quote else [],
             evidence_quotes_english=[],
             confidence=confidence,
-            needs_human_review=cls["negative"],
+            needs_human_review=cls["negative"]
+            or (issue_profile is not None and issue_profile.issue_category == "public_safety"),
         )

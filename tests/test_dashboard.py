@@ -14,6 +14,7 @@ def test_dashboard_summary_counts_analysis_and_review_status(tmp_path):
     negative = make_analysis().model_copy(
         update={
             "stance_toward_government": Stance.NEGATIVE,
+            "tvk_portrayal": Stance.NEGATIVE,
             "severity": Severity.HIGH,
             "government_relevance": GovernmentRelevance.HIGH,
             "needs_human_review": True,
@@ -25,6 +26,7 @@ def test_dashboard_summary_counts_analysis_and_review_status(tmp_path):
     positive = make_analysis().model_copy(
         update={
             "stance_toward_government": Stance.POSITIVE,
+            "tvk_portrayal": Stance.POSITIVE,
             "severity": Severity.LOW,
             "needs_human_review": False,
             "department": "health",
@@ -62,6 +64,9 @@ def test_dashboard_summary_counts_analysis_and_review_status(tmp_path):
     assert summary["total_chunks"] >= 1
     assert summary["total_embeddings"] >= 1
     assert summary["openai_analyses"] == 1
+    assert summary["semantic_analyses"] == 1
+    assert summary["fallback_analyses"] == 1
+    assert summary["keyword_analyses"] == 0
     assert summary["mock_analyses"] == 2
     assert summary["needs_human_review"] == 1
     assert summary["reviewed"] == 1
@@ -75,6 +80,28 @@ def test_dashboard_summary_counts_analysis_and_review_status(tmp_path):
     assert summary["source_counts"]["Example"] == 2
     assert summary["analysis_model_counts"]["gpt-5-mini"] == 1
     assert "local/hash-embedding-v1" in summary["embedding_provider_counts"]
+
+
+def test_dashboard_summary_counts_keyword_analyzer_as_fallback(tmp_path):
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'dashboard.db'}")
+    init_db(session_factory)
+
+    with session_factory() as session:
+        raw = save_raw_item(session, make_item().model_copy(update={"source_url": "https://example.com/local"}))
+        save_ai_analysis(
+            session,
+            raw.id,
+            make_analysis(),
+            model_name="local-tamil-keywords",
+            prompt_version="v1",
+        )
+        summary = get_dashboard_summary(session)
+        session.commit()
+
+    assert summary["openai_analyses"] == 0
+    assert summary["semantic_analyses"] == 0
+    assert summary["fallback_analyses"] == 1
+    assert summary["keyword_analyses"] == 1
 
 
 def test_review_queue_prioritizes_unreviewed_high_severity_items(tmp_path):
@@ -140,6 +167,44 @@ def test_latest_items_returns_recent_analyzed_newspaper_items(tmp_path):
     assert latest[0]["stance_label"] == "Positive / நேர்மறை"
     assert latest[0]["portrayal_kind"] == "positive"
     assert latest[0]["evidence_original"]
+
+
+def test_latest_items_displays_neutral_people_issue_as_people_issue(tmp_path):
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'dashboard.db'}")
+    init_db(session_factory)
+
+    people_issue = make_analysis().model_copy(
+        update={
+            "stance_toward_government": Stance.NEUTRAL,
+            "tvk_portrayal": Stance.NEUTRAL,
+            "people_issue": True,
+            "public_issue": "school safety incident",
+            "severity": Severity.HIGH,
+            "recommended_step": "Send the district team to verify injuries and response.",
+            "action_owner": "District field team",
+            "action_type": "field_verification",
+        }
+    )
+
+    with session_factory() as session:
+        raw = save_raw_item(
+            session,
+            make_item().model_copy(
+                update={
+                    "title": "சென்னை பள்ளி அருகே தீ விபத்து",
+                    "source_url": "https://example.com/school-fire",
+                }
+            ),
+        )
+        save_ai_analysis(session, raw.id, people_issue, model_name="mock", prompt_version="v2")
+        latest = list_latest_items(session, limit=10)
+        session.commit()
+
+    assert latest[0]["stance"] == "neutral"
+    assert latest[0]["people_issue"] is True
+    assert latest[0]["portrayal_kind"] == "people"
+    assert latest[0]["stance_label"] == "People Issue / மக்கள் பிரச்சனை"
+    assert latest[0]["public_issue"] == "school safety incident"
 
 
 def test_latest_items_prefers_live_ai_analysis_over_mock_for_same_raw_item(tmp_path):

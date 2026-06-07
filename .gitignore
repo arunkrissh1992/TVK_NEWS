@@ -8,3 +8,8 @@ reports/generated/
 object-store/
 *.pyc
 .worktrees/
+*.db
+*.sqlite
+*.sqlite3
+*.egg-info/
+dashboard-demo-final.png

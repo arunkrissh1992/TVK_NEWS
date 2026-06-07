@@ -101,6 +101,37 @@ def test_save_ai_analysis_for_raw_item(tmp_path):
     assert saved.raw_item_id == raw.id
 
 
+def test_save_ai_analysis_persists_tvk_intelligence_fields(tmp_path):
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'test.db'}")
+    init_db(session_factory)
+    analysis = make_analysis().model_copy(
+        update={
+            "tvk_relevance": GovernmentRelevance.HIGH,
+            "tvk_portrayal": Stance.MIXED,
+            "political_actors": ["TVK", "Vijay"],
+            "people_issue": True,
+            "public_issue": "school safety incident",
+            "action_owner": "District field team",
+            "action_type": "field_verification",
+            "action_priority": Severity.HIGH,
+        }
+    )
+
+    with session_factory() as session:
+        raw = save_raw_item(session, make_item())
+        saved = save_ai_analysis(session, raw.id, analysis, model_name="mock", prompt_version="v2")
+        session.commit()
+
+    assert saved.tvk_relevance == "high"
+    assert saved.tvk_portrayal == "mixed"
+    assert saved.political_actors == ["TVK", "Vijay"]
+    assert saved.people_issue is True
+    assert saved.public_issue == "school safety incident"
+    assert saved.action_owner == "District field team"
+    assert saved.action_type == "field_verification"
+    assert saved.action_priority == "high"
+
+
 def test_save_ai_analysis_is_idempotent_for_raw_model_and_prompt(tmp_path):
     session_factory = create_session_factory(f"sqlite:///{tmp_path / 'test.db'}")
     init_db(session_factory)
@@ -179,6 +210,13 @@ def test_postgresql_ddl_includes_json_server_defaults():
     ai_analysis_ddl = str(CreateTable(AIAnalysisRecord.__table__).compile(dialect=dialect))
 
     assert "metadata_json JSONB DEFAULT '{}'" in raw_items_ddl
+    assert "tvk_relevance VARCHAR(32) DEFAULT 'none' NOT NULL" in ai_analysis_ddl
+    assert "tvk_portrayal VARCHAR(32) DEFAULT 'neutral' NOT NULL" in ai_analysis_ddl
+    assert "political_actors JSONB DEFAULT '[]'" in ai_analysis_ddl
+    assert "people_issue BOOLEAN DEFAULT false NOT NULL" in ai_analysis_ddl
+    assert "action_owner VARCHAR(128) DEFAULT '' NOT NULL" in ai_analysis_ddl
+    assert "action_type VARCHAR(64) DEFAULT '' NOT NULL" in ai_analysis_ddl
+    assert "action_priority VARCHAR(64) DEFAULT 'low' NOT NULL" in ai_analysis_ddl
     assert "positive_points JSONB DEFAULT '[]'" in ai_analysis_ddl
     assert "negative_points JSONB DEFAULT '[]'" in ai_analysis_ddl
     assert "evidence_quotes_original JSONB DEFAULT '[]'" in ai_analysis_ddl

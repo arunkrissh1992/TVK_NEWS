@@ -5,7 +5,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 
 class SourceType(StrEnum):
@@ -151,13 +151,18 @@ class NormalizedItem(BaseModel):
 class AIAnalysis(BaseModel):
     government_relevance: GovernmentRelevance
     stance_toward_government: Stance
+    tvk_relevance: GovernmentRelevance | None = None
+    tvk_portrayal: Stance | None = None
     sentiment: Sentiment
     target: str
+    political_actors: list[str] = Field(default_factory=list)
     department: str
     district: str
     scheme: str | None = None
     topic: str
     issue_category: str
+    people_issue: bool | None = None
+    public_issue: str = ""
     severity: Severity
     summary_original: str
     summary_english: str
@@ -168,12 +173,40 @@ class AIAnalysis(BaseModel):
     people_impact: str = ""
     root_cause: str = ""
     recommended_step: str = ""
+    action_owner: str = ""
+    action_type: str = ""
+    action_priority: Severity | None = None
+    # Action playbook — populated for negative / people-issue items so the
+    # leadership office gets a ready-to-act brief, not just a one-line step.
+    # All empty for positive, neutral, or out-of-scope rows.
+    risk_if_ignored: str = ""
+    talking_points: list[str] = Field(default_factory=list)
+    verification_checklist: list[str] = Field(default_factory=list)
+    draft_statement_original: str = ""
+    draft_statement_english: str = ""
     positive_points: list[str] = Field(default_factory=list)
     negative_points: list[str] = Field(default_factory=list)
     evidence_quotes_original: list[str] = Field(default_factory=list)
     evidence_quotes_english: list[str] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0)
     needs_human_review: bool
+
+    @model_validator(mode="after")
+    def backfill_tvk_intelligence_fields(self) -> "AIAnalysis":
+        if self.tvk_relevance is None:
+            self.tvk_relevance = self.government_relevance
+        if self.tvk_portrayal is None:
+            self.tvk_portrayal = self.stance_toward_government
+        if self.people_issue is None:
+            self.people_issue = bool(
+                self.people_impact.strip()
+                or self.public_issue.strip()
+                or self.stance_toward_government in {Stance.NEGATIVE, Stance.MIXED}
+                or self.needs_human_review
+            )
+        if self.action_priority is None:
+            self.action_priority = self.severity
+        return self
 
 
 class XPost(BaseModel):
