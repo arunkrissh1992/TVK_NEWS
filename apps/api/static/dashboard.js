@@ -1505,8 +1505,6 @@
       .catch(function () { /* not fatal */ });
   }
 
-  function boot() {
-    markReveal();
   // ===== Intelligence graph — actor scorecards, entity browser, dossier modal =====
   function setupIntelligence() {
     const scorecards = doc.getElementById("actor-scorecards");
@@ -1774,6 +1772,7 @@
   }
 
   function boot() {
+    markReveal();
     animateIn();
     setupCounters();
     setupFilterDeck();
