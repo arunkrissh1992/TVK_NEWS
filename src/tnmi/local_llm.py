@@ -90,9 +90,11 @@ _OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 _DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "gemma2:2b")
 
 # We want short, scannable briefing lines. Gemma 2 generates a couple of
-# hundred tokens in under a few seconds on CPU; 768 is comfortably above
-# our envelope.
-_MAX_OUTPUT_TOKENS = 768
+# hundred tokens in under a few seconds on CPU. The briefing schema has ~30
+# fields including several free-text lines and quote lists, so 768 was clipping
+# the JSON mid-string (an "unterminated string" parse error). 1536 gives the
+# model room to close the object.
+_MAX_OUTPUT_TOKENS = 1536
 
 # Temperature 0.2 keeps the output stable across re-runs (deterministic-ish)
 # while leaving enough flexibility for natural-sounding summaries.
@@ -317,7 +319,7 @@ class GemmaAnalyzer:
             return _not_relevant_analysis(
                 title=title, evidence_quote=evidence, issue_category="listing",
             )
-        if not _looks_like_tn_content(title, body):
+        if not _looks_like_tn_content(title, body, item.source_url):
             evidence = _first_sentence(body) or title
             return _not_relevant_analysis(
                 title=title, evidence_quote=evidence, issue_category="out-of-scope",
@@ -446,7 +448,8 @@ def _backfill_defaults(payload: dict[str, Any], item: NormalizedItem) -> None:
     payload.setdefault("confidence", 0.7)
     payload.setdefault("needs_human_review", False)
 
-    # Some Gemma outputs nullify optional lists; coerce back to empty list.
+    # Some Gemma outputs nullify optional lists, or return a single string where
+    # a list is expected. Coerce both to a clean list[str].
     for key in (
         "positive_points",
         "negative_points",
@@ -456,8 +459,24 @@ def _backfill_defaults(payload: dict[str, Any], item: NormalizedItem) -> None:
         "talking_points",
         "verification_checklist",
     ):
-        if payload.get(key) is None:
+        value = payload.get(key)
+        if value is None or isinstance(value, bool):
             payload[key] = []
+        elif isinstance(value, str):
+            payload[key] = [value.strip()] if value.strip() else []
+        elif isinstance(value, list):
+            payload[key] = [str(v).strip() for v in value if v is not None and str(v).strip()]
+        else:
+            payload[key] = []
+
+    # people_issue / needs_human_review are booleans; Gemma sometimes returns a
+    # string ("true"/"yes") or omits them. Coerce to a real bool.
+    for key in ("people_issue", "needs_human_review"):
+        value = payload.get(key)
+        if isinstance(value, str):
+            payload[key] = value.strip().lower() in {"true", "yes", "1", "y"}
+        elif not isinstance(value, bool):
+            payload[key] = bool(value)
 
     # Gemma sometimes returns null or the literal string "None"/"N/A" for
     # optional briefing-line fields. Coerce both to empty string so the
@@ -484,9 +503,14 @@ def _backfill_defaults(payload: dict[str, Any], item: NormalizedItem) -> None:
     _NULL_STRING_MARKERS = {"none", "n/a", "null", "не применимо"}
     for key in _OPTIONAL_STR_FIELDS:
         value = payload.get(key)
-        if value is None:
+        # Gemma occasionally types a free-text field as a bool/number/list/object
+        # (e.g. people_impact=false). None of those are valid content, so flatten
+        # them: bool/list/dict → "", scalar → its string form.
+        if value is None or isinstance(value, (bool, list, dict)):
             payload[key] = ""
-        elif isinstance(value, str) and value.strip().lower() in _NULL_STRING_MARKERS:
+        elif not isinstance(value, str):
+            payload[key] = str(value)
+        elif value.strip().lower() in _NULL_STRING_MARKERS:
             payload[key] = ""
 
     # Coerce confidence to float if Gemma returned a string like "0.9"

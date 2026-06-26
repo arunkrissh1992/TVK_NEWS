@@ -133,6 +133,74 @@ class ReviewDecisionRecord(Base):
     )
 
 
+class LabeledExampleRecord(Base):
+    """One training label for one field of one article, at one quality tier.
+
+    The Bronze/Silver/Gold spine of the learning flywheel. At most one row per
+    (raw_item_id, field, tier) — recording a label upserts that tier's value —
+    so a single item carries a clean bronze→silver→gold progression per field.
+    """
+
+    __tablename__ = "labeled_examples"
+    __table_args__ = (
+        UniqueConstraint("raw_item_id", "field", "tier", name="uq_labeled_example_item_field_tier"),
+    )
+
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    raw_item_id: Mapped[int] = mapped_column(
+        ID_TYPE, ForeignKey("raw_items.id", ondelete="CASCADE"), index=True
+    )
+    analysis_id: Mapped[int | None] = mapped_column(
+        ID_TYPE, ForeignKey("ai_analysis.id", ondelete="SET NULL"), nullable=True
+    )
+    field: Mapped[str] = mapped_column(String(64), index=True)
+    value: Mapped[str] = mapped_column(String(64))
+    tier: Mapped[str] = mapped_column(String(16), index=True)
+    provenance: Mapped[str] = mapped_column(String(32), index=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
+    validator: Mapped[str] = mapped_column(String(128), default="", server_default="")
+    # Stable split bucket [0,100) derived from a hash of (raw_item_id, field) so a
+    # held-out gold test set has fixed membership across runs. See tnmi.eval.
+    split_bucket: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+
+
+class ModelRegistryRecord(Base):
+    """One trained/evaluated model version and its scorecard.
+
+    The promotion gate lives here: a candidate becomes ``is_live`` only when its
+    ``primary_metric`` beats the current live model on the gold test set. This is
+    what makes "train on and on" safe — a worse model is registered but never
+    serves, so the system cannot silently regress or collapse.
+    """
+
+    __tablename__ = "model_registry"
+    __table_args__ = (
+        UniqueConstraint("model_name", "version", name="uq_model_registry_name_version"),
+    )
+
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    model_name: Mapped[str] = mapped_column(String(128), index=True)
+    version: Mapped[str] = mapped_column(String(64))
+    kind: Mapped[str] = mapped_column(String(32), default="classifier", server_default="classifier")
+    metrics_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, server_default=text("'{}'"))
+    primary_metric: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
+    eval_examples: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    is_live: Mapped[bool] = mapped_column(default=False, server_default=text("false"), index=True)
+    artifact_uri: Mapped[str] = mapped_column(Text, default="", server_default="")
+    notes: Mapped[str] = mapped_column(Text, default="", server_default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+
+
 class SourceCheckpointRecord(Base):
     __tablename__ = "source_checkpoints"
     __table_args__ = (
@@ -195,6 +263,82 @@ class ChunkEmbeddingRecord(Base):
         default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
     )
+
+
+class EntityRecord(Base):
+    """One canonical political object — person, party, office, district, source…
+
+    The knowledge vault renders one dossier per active entity; the resolver maps
+    free-text surfaces (``ai_analysis.political_actors``, ``district``,
+    ``department``, ``scheme``, ``raw_items.source_name``) onto these rows via
+    ``EntityAliasRecord``. Unknown surfaces become ``status='candidate'`` rows so
+    a human can confirm or merge them — they are never silently dropped.
+    """
+
+    __tablename__ = "entities"
+    __table_args__ = (UniqueConstraint("slug", name="uq_entities_slug"),)
+
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    entity_type: Mapped[str] = mapped_column(String(32), index=True)
+    slug: Mapped[str] = mapped_column(String(160))
+    canonical_name: Mapped[str] = mapped_column(String(255))
+    name_ta: Mapped[str] = mapped_column(String(255), default="", server_default="")
+    role: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    party: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    district: Mapped[str] = mapped_column(String(128), default="", server_default="")
+    portfolio: Mapped[str] = mapped_column(String(128), default="", server_default="")
+    is_tvk: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    status: Mapped[str] = mapped_column(String(16), default="active", server_default="active", index=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, server_default=text("'{}'"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+
+
+class EntityAliasRecord(Base):
+    """One surface form that resolves to an entity. ``normalized`` holds the
+    casefolded/whitespace-collapsed lookup key (computed by tnmi.resolver) so
+    bilingual variants — "EPS", "எடப்பாடி பழனிசாமி" — hit the same row."""
+
+    __tablename__ = "entity_aliases"
+    __table_args__ = (UniqueConstraint("entity_id", "alias", name="uq_entity_alias"),)
+
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    entity_id: Mapped[int] = mapped_column(ID_TYPE, ForeignKey("entities.id", ondelete="CASCADE"), index=True)
+    alias: Mapped[str] = mapped_column(String(255))
+    normalized: Mapped[str] = mapped_column(String(255), index=True)
+    lang: Mapped[str] = mapped_column(String(8), default="", server_default="")
+
+
+class ItemEntityRecord(Base):
+    """One resolved mention: this item references this entity.
+
+    ``surface`` keeps the original free-text string for audit, ``mention_field``
+    records which analysis column it came from. At most one row per
+    (item, entity, field, surface). The resolver keeps exactly ONE analysis's
+    view per item (the same non-mock-then-latest winner the dashboard shows),
+    replacing rows when a better analysis supersedes an old one.
+    """
+
+    __tablename__ = "item_entities"
+    __table_args__ = (
+        UniqueConstraint("raw_item_id", "entity_id", "mention_field", "surface", name="uq_item_entity"),
+    )
+
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    raw_item_id: Mapped[int] = mapped_column(ID_TYPE, ForeignKey("raw_items.id", ondelete="CASCADE"), index=True)
+    analysis_id: Mapped[int | None] = mapped_column(
+        ID_TYPE, ForeignKey("ai_analysis.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    entity_id: Mapped[int] = mapped_column(ID_TYPE, ForeignKey("entities.id", ondelete="CASCADE"), index=True)
+    mention_field: Mapped[str] = mapped_column(String(32), index=True)
+    surface: Mapped[str] = mapped_column(String(255))
+    portrayal: Mapped[str] = mapped_column(String(32), default="", server_default="")
+    action_summary: Mapped[str] = mapped_column(Text, default="", server_default="")
+    resolver_version: Mapped[str] = mapped_column(String(32))
+    confidence: Mapped[float] = mapped_column(Float, default=1.0, server_default=text("1.0"))
 
 
 def create_session_factory(database_url: str) -> sessionmaker[Session]:
@@ -518,6 +662,177 @@ def get_latest_review_decision(session: Session, analysis_id: int) -> ReviewDeci
         .order_by(ReviewDecisionRecord.created_at.desc(), ReviewDecisionRecord.id.desc())
         .limit(1)
     )
+
+
+def get_entity_by_slug(session: Session, slug: str) -> EntityRecord | None:
+    return session.scalar(select(EntityRecord).where(EntityRecord.slug == slug))
+
+
+def list_entities(
+    session: Session,
+    *,
+    entity_type: str | None = None,
+    status: str | None = None,
+) -> list[EntityRecord]:
+    statement = select(EntityRecord)
+    if entity_type is not None:
+        statement = statement.where(EntityRecord.entity_type == entity_type)
+    if status is not None:
+        statement = statement.where(EntityRecord.status == status)
+    return list(session.scalars(statement.order_by(EntityRecord.slug.asc())))
+
+
+def upsert_entity(
+    session: Session,
+    *,
+    entity_type: str,
+    slug: str,
+    canonical_name: str,
+    name_ta: str = "",
+    role: str = "",
+    party: str = "",
+    district: str = "",
+    portfolio: str = "",
+    is_tvk: bool = False,
+    status: str = "active",
+    metadata: dict[str, Any] | None = None,
+) -> EntityRecord:
+    existing = get_entity_by_slug(session, slug)
+    if existing:
+        # Seed re-syncs refresh descriptive fields but never demote a
+        # human-confirmed entity back to candidate.
+        existing.entity_type = entity_type
+        existing.canonical_name = canonical_name
+        existing.name_ta = name_ta or existing.name_ta
+        existing.role = role or existing.role
+        existing.party = party or existing.party
+        existing.district = district or existing.district
+        existing.portfolio = portfolio or existing.portfolio
+        existing.is_tvk = is_tvk or existing.is_tvk
+        if existing.status == "candidate" and status == "active":
+            existing.status = status
+        if metadata:
+            merged = dict(existing.metadata_json or {})
+            merged.update(metadata)
+            existing.metadata_json = merged
+        session.flush()
+        return existing
+
+    record = EntityRecord(
+        entity_type=entity_type,
+        slug=slug,
+        canonical_name=canonical_name,
+        name_ta=name_ta,
+        role=role,
+        party=party,
+        district=district,
+        portfolio=portfolio,
+        is_tvk=is_tvk,
+        status=status,
+        metadata_json=metadata or {},
+    )
+    try:
+        with session.begin_nested():
+            session.add(record)
+            session.flush()
+    except IntegrityError:
+        existing = get_entity_by_slug(session, slug)
+        if existing:
+            return existing
+        raise
+    return record
+
+
+def add_entity_alias(
+    session: Session,
+    *,
+    entity_id: int,
+    alias: str,
+    normalized: str,
+    lang: str = "",
+) -> EntityAliasRecord:
+    existing = session.scalar(
+        select(EntityAliasRecord).where(
+            EntityAliasRecord.entity_id == entity_id,
+            EntityAliasRecord.alias == alias,
+        )
+    )
+    if existing:
+        if existing.normalized != normalized:
+            existing.normalized = normalized
+            session.flush()
+        return existing
+
+    record = EntityAliasRecord(entity_id=entity_id, alias=alias, normalized=normalized, lang=lang)
+    try:
+        with session.begin_nested():
+            session.add(record)
+            session.flush()
+    except IntegrityError:
+        existing = session.scalar(
+            select(EntityAliasRecord).where(
+                EntityAliasRecord.entity_id == entity_id,
+                EntityAliasRecord.alias == alias,
+            )
+        )
+        if existing:
+            return existing
+        raise
+    return record
+
+
+def save_item_entity(
+    session: Session,
+    *,
+    raw_item_id: int,
+    entity_id: int,
+    mention_field: str,
+    surface: str,
+    resolver_version: str,
+    analysis_id: int | None = None,
+    portrayal: str = "",
+    action_summary: str = "",
+    confidence: float = 1.0,
+) -> ItemEntityRecord:
+    existing = session.scalar(
+        select(ItemEntityRecord).where(
+            ItemEntityRecord.raw_item_id == raw_item_id,
+            ItemEntityRecord.entity_id == entity_id,
+            ItemEntityRecord.mention_field == mention_field,
+            ItemEntityRecord.surface == surface,
+        )
+    )
+    if existing:
+        return existing
+
+    record = ItemEntityRecord(
+        raw_item_id=raw_item_id,
+        analysis_id=analysis_id,
+        entity_id=entity_id,
+        mention_field=mention_field,
+        surface=surface,
+        portrayal=portrayal,
+        action_summary=action_summary,
+        resolver_version=resolver_version,
+        confidence=confidence,
+    )
+    try:
+        with session.begin_nested():
+            session.add(record)
+            session.flush()
+    except IntegrityError:
+        existing = session.scalar(
+            select(ItemEntityRecord).where(
+                ItemEntityRecord.raw_item_id == raw_item_id,
+                ItemEntityRecord.entity_id == entity_id,
+                ItemEntityRecord.mention_field == mention_field,
+                ItemEntityRecord.surface == surface,
+            )
+        )
+        if existing:
+            return existing
+        raise
+    return record
 
 
 def get_source_checkpoint(

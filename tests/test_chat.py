@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from tnmi.chat import answer_question, retrieve_chat_evidence
+from tnmi.chat import (
+    ChatEvidence,
+    ChatTurn,
+    OllamaChatProvider,
+    _build_chat_prompt,
+    answer_question,
+    build_retrieval_query,
+    retrieve_chat_evidence,
+)
 from tnmi.contracts import AIAnalysis, NormalizedItem, SourceType
 from tnmi.storage import create_session_factory, init_db, save_ai_analysis, save_raw_item
 from tests.test_storage import make_analysis
@@ -32,9 +40,10 @@ class _FakeChatProvider:
         self.questions: list[str] = []
         self.evidence_titles: list[str] = []
 
-    def answer(self, question, evidence):  # type: ignore[no-untyped-def]
+    def answer(self, question, evidence, *, dossier_context=""):  # type: ignore[no-untyped-def]
         self.questions.append(question)
         self.evidence_titles = [item.title for item in evidence]
+        self.dossier_context = dossier_context
         return "AI answer grounded in: " + ", ".join(self.evidence_titles)
 
 
@@ -144,3 +153,148 @@ def test_answer_question_refuses_when_no_stored_evidence_matches(tmp_path):
     assert "do not have enough evidence" in answer.answer.lower()
     assert answer.evidence == []
     assert provider.questions == []
+
+
+def _chat_evidence(**updates: object) -> ChatEvidence:
+    base: dict[str, object] = dict(
+        raw_item_id=1,
+        analysis_id=1,
+        title="TVK members visit flood families",
+        source_name="Example Daily",
+        source_url="https://example.com/tvk",
+        published_at=None,
+        language="en",
+        stance="negative",
+        relevance="high",
+        summary="TVK members visited flood affected families.",
+        snippet="TVK members visited flood affected families",
+        department="general",
+        district="Chennai",
+        topic="flood relief",
+        confidence=0.8,
+        needs_human_review=False,
+    )
+    base.update(updates)
+    return ChatEvidence(**base)
+
+
+class _FakeStreamClient:
+    """Stand-in for ollama.Client whose generate() streams fragments."""
+
+    def __init__(self, fragments: list[str]) -> None:
+        self._fragments = list(fragments)
+        self.calls: list[dict] = []
+
+    def generate(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.calls.append(kwargs)
+
+        def _gen():
+            for fragment in self._fragments:
+                yield {"response": fragment}
+
+        return _gen()
+
+
+def test_build_retrieval_query_prepends_prior_user_question():
+    history = [
+        ChatTurn(role="user", content="water problems in Chennai"),
+        ChatTurn(role="assistant", content="Several issues were reported."),
+    ]
+    assert (
+        build_retrieval_query("what about the second one?", history)
+        == "water problems in Chennai what about the second one?"
+    )
+    assert build_retrieval_query("just this", []) == "just this"
+
+
+def test_build_chat_prompt_includes_conversation_history():
+    evidence = [_chat_evidence()]
+    history = [
+        ChatTurn(role="user", content="Tell me about flood relief"),
+        ChatTurn(role="assistant", content="TVK visited families. [1]"),
+    ]
+    prompt = _build_chat_prompt(question="who paid for it?", evidence=evidence, history=history)
+    assert "Conversation so far" in prompt
+    assert "Tell me about flood relief" in prompt
+    assert "who paid for it?" in prompt
+
+    plain = _build_chat_prompt(question="hi there", evidence=evidence)
+    assert "Conversation so far" not in plain
+
+
+def test_ollama_provider_stream_answer_yields_fragments_without_dropping_spaces():
+    provider = OllamaChatProvider(model="gemma2:2b", host="http://localhost:11434")
+    fake = _FakeStreamClient(["The ", "flood ", "relief", "."])
+    provider._client = fake  # type: ignore[attr-defined]
+
+    out = "".join(provider.stream_answer("q", [_chat_evidence()]))
+
+    assert out == "The flood relief."
+    assert fake.calls[0]["stream"] is True
+    assert fake.calls[0]["model"] == "gemma2:2b"
+
+
+def test_ollama_provider_stream_answer_refuses_without_evidence():
+    provider = OllamaChatProvider(model="gemma2:2b", host="http://localhost:11434")
+    provider._client = _FakeStreamClient(["unused"])  # type: ignore[attr-defined]
+
+    out = "".join(provider.stream_answer("q", []))
+
+    assert "do not have enough evidence" in out.lower()
+
+
+def test_resolve_question_entities_and_dossier_context(tmp_path):
+    """Naming an entity in the question pulls its aggregate dossier brief —
+    the over-time context that keyword retrieval cannot give."""
+    from tnmi.chat import build_dossier_context, resolve_question_entities
+    from tnmi.contracts import GovernmentRelevance, Stance
+    from tnmi.entity_api import invalidate_entity_cache
+    from tnmi.resolver import resolve_all
+    from tnmi.storage import (
+        create_session_factory,
+        init_db,
+        save_ai_analysis,
+        save_raw_item,
+    )
+    from tests.test_storage import make_analysis, make_item
+
+    factory = create_session_factory(f"sqlite:///{tmp_path / 'chat-entity.db'}")
+    init_db(factory)
+    with factory() as session:
+        for i in range(3):
+            raw = save_raw_item(
+                session,
+                make_item().model_copy(
+                    update={
+                        "source_url": f"https://e.com/v{i}",
+                        "title": "Vijay scheme",
+                        "raw_text_original": "Vijay launched a welfare scheme in Chennai.",
+                        "clean_text_original": "Vijay launched a welfare scheme in Chennai.",
+                    }
+                ),
+            )
+            save_ai_analysis(
+                session,
+                raw.id,
+                make_analysis().model_copy(
+                    update={
+                        "political_actors": ["Vijay (CM)"],
+                        "tvk_portrayal": Stance.POSITIVE,
+                        "government_relevance": GovernmentRelevance.HIGH,
+                    }
+                ),
+                model_name="mock",
+                prompt_version="v19",
+            )
+        session.commit()
+        resolve_all(session, seed_path="configs/entities.seed.yaml")
+        session.commit()
+        invalidate_entity_cache()
+
+        assert resolve_question_entities(session, "How is Vijay being covered?") == ["vijay"]
+        assert resolve_question_entities(session, "tell me about cricket scores") == []
+
+        context = build_dossier_context(session, "How is Vijay being covered?")
+        assert "Vijay" in context
+        assert "mentions" in context
+        assert "favourability" in context

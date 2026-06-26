@@ -53,6 +53,85 @@ class ReviewStatus(StrEnum):
     CORRECTED = "corrected"
 
 
+class LabelTier(StrEnum):
+    """Data-quality tier for a training label.
+
+    BRONZE — raw single-model output, unverified.
+    SILVER — agreed by an independent (teacher) model or high-confidence; usable
+             as bulk training signal but never as the yardstick.
+    GOLD   — human-verified. The only tier that gates model promotion, and the
+             only tier the frozen eval test set is drawn from.
+    """
+
+    BRONZE = "bronze"
+    SILVER = "silver"
+    GOLD = "gold"
+
+
+class LabelProvenance(StrEnum):
+    """Where a label came from — kept on every row so training can weight,
+    downweight, or exclude a source, and so collapse is auditable."""
+
+    AI = "ai"  # raw student-model output (bronze)
+    AI_HIGH_CONF = "ai_high_conf"  # student agreed with itself at high confidence (silver)
+    TEACHER_MODEL = "teacher_model"  # an independent stronger model agreed (silver)
+    HUMAN = "human"  # human reviewer verified or corrected (gold)
+    ENRICHED = "enriched"  # verifiable structured join (geo/entity/demographic)
+
+
+# The classifier targets we collect labels for and train/evaluate against.
+LABEL_FIELDS: tuple[str, ...] = (
+    "government_relevance",
+    "tvk_relevance",
+    "stance_toward_government",
+    "tvk_portrayal",
+    "people_issue",
+    "issue_category",
+    "severity",
+)
+
+
+class EntityType(StrEnum):
+    """Kinds of canonical political objects the knowledge vault tracks."""
+
+    PERSON = "person"
+    PARTY = "party"
+    OFFICE = "office"  # role-word mentions ("Chief Minister", "Minister", "MLA")
+    ORGANIZATION = "org"
+    SOURCE = "source"
+    DEPARTMENT = "department"
+    DISTRICT = "district"
+    CONSTITUENCY = "constituency"
+    SCHEME = "scheme"
+
+
+class EntityStatus(StrEnum):
+    ACTIVE = "active"
+    CANDIDATE = "candidate"  # auto-created from an unknown surface; needs human confirmation
+    RETIRED = "retired"
+
+
+class EntitySeed(BaseModel):
+    """One curated entity from configs/entities.seed.yaml.
+
+    The seed file is config, not code — it encodes the deployment's political
+    reality (who holds which office, which parties matter) so operators can
+    edit the roster without touching Python.
+    """
+
+    entity_type: EntityType
+    slug: str = Field(min_length=1, max_length=160)
+    canonical_name: str = Field(min_length=1, max_length=255)
+    name_ta: str = ""
+    role: str = ""
+    party: str = ""
+    district: str = ""
+    portfolio: str = ""
+    is_tvk: bool = False
+    aliases: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class NewspaperSource(BaseModel):
     name: str
     source_type: SourceType = SourceType.NEWS

@@ -1,0 +1,238 @@
+# Canonical entity roster — the nodes of the knowledge vault.
+#
+# This file is CONFIG, not code: it encodes this deployment's political
+# reality (TVK governs Tamil Nadu; Vijay holds the CM office) so operators can
+# edit the roster — add ministers, repoint office holders, add aliases —
+# without touching Python. `python -m pipelines.resolve_entities` re-syncs.
+#
+# Districts are NOT listed here — they seed programmatically from
+# tnmi/districts.py (the single source of truth, 38 districts with Tamil
+# aliases). Sources seed from configs/sources.*.yaml plus observed
+# raw_items.source_name values.
+#
+# Aliases: include every surface form the analyzer emits — English, Tamil,
+# abbreviations, and the mock analyzer's labels (e.g. "Vijay (CM)",
+# "DMK (opposition)") so tests and live data resolve identically.
+
+people:
+  - slug: vijay
+    canonical_name: Vijay
+    name_ta: விஜய்
+    role: cm
+    party: TVK
+    is_tvk: true
+    aliases: ["Vijay (CM)", "Thalapathy Vijay", "Thalapathy", "தளபதி", "தலைவர் விஜய்", "விஜய்"]
+    metadata: {office: office-chief-minister}
+  - slug: bussy-anand
+    canonical_name: Bussy Anand
+    name_ta: பஸ்ஸி ஆனந்த்
+    role: party_official
+    party: TVK
+    is_tvk: true
+    aliases: ["N. Anand", "Bussy N. Anand"]
+  - slug: mk-stalin
+    canonical_name: M.K. Stalin
+    name_ta: மு.க. ஸ்டாலின்
+    role: party_official
+    party: DMK
+    aliases: ["Stalin", "MK Stalin", "ஸ்டாலின்", "முக ஸ்டாலின்"]
+  - slug: udhayanidhi-stalin
+    canonical_name: Udhayanidhi Stalin
+    name_ta: உதயநிதி ஸ்டாலின்
+    role: party_official
+    party: DMK
+    aliases: ["Udhayanidhi", "உதயநிதி"]
+  - slug: edappadi-palaniswami
+    canonical_name: Edappadi K. Palaniswami
+    name_ta: எடப்பாடி பழனிசாமி
+    role: party_official
+    party: AIADMK
+    aliases: ["EPS", "Edappadi Palaniswami", "எடப்பாடி", "இபிஎஸ்"]
+  - slug: annamalai
+    canonical_name: K. Annamalai
+    name_ta: அண்ணாமலை
+    role: party_official
+    party: BJP
+    aliases: ["Annamalai", "K Annamalai"]
+  - slug: seeman
+    canonical_name: Seeman
+    name_ta: சீமான்
+    role: party_official
+    party: NTK
+    aliases: ["சீமான்"]
+  - slug: anbumani-ramadoss
+    canonical_name: Anbumani Ramadoss
+    name_ta: அன்புமணி ராமதாஸ்
+    role: party_official
+    party: PMK
+    aliases: ["Anbumani", "அன்புமணி"]
+  - slug: thol-thirumavalavan
+    canonical_name: Thol. Thirumavalavan
+    name_ta: தொல். திருமாவளவன்
+    role: party_official
+    party: VCK
+    aliases: ["Thirumavalavan", "திருமாவளவன்"]
+
+# Role-word mentions. The analyzer often emits bare "Chief Minister" /
+# "Minister" / "MLA" with no name — resolving those to a specific person would
+# be guesswork, so they map to office entities instead. Per this deployment's
+# lens TVK holds the government: the CM office links to Vijay, and "Minister"
+# denotes a TVK cabinet member (see _ACTOR_KEYWORDS in tnmi/ai.py).
+offices:
+  - slug: office-chief-minister
+    canonical_name: Chief Minister's office
+    name_ta: முதலமைச்சர்
+    role: cm
+    is_tvk: true
+    aliases: ["Chief Minister", "CM", "முதலமைச்சர்", "முதல்வர்"]
+    metadata: {holder: vijay}
+  - slug: office-ministers
+    canonical_name: Ministers (cabinet)
+    name_ta: அமைச்சர்கள்
+    role: minister
+    is_tvk: true
+    aliases: ["Minister", "Ministers", "அமைச்சர்", "அமைச்சர்கள்"]
+  - slug: office-mlas
+    canonical_name: MLAs
+    name_ta: சட்டமன்ற உறுப்பினர்கள்
+    role: mla
+    aliases: ["MLA", "MLAs", "எம்எல்ஏ", "சட்டமன்ற உறுப்பினர்"]
+  - slug: office-mps
+    canonical_name: MPs
+    name_ta: நாடாளுமன்ற உறுப்பினர்கள்
+    role: mp
+    aliases: ["MP", "MPs", "எம்பி", "நாடாளுமன்ற உறுப்பினர்"]
+  - slug: office-governor
+    canonical_name: Governor
+    name_ta: ஆளுநர்
+    role: governor
+    aliases: ["Governor", "ஆளுநர்", "கவர்னர்"]
+  - slug: office-collectors
+    canonical_name: District Collectors
+    name_ta: மாவட்ட ஆட்சியர்கள்
+    role: official
+    aliases: ["Collector", "District Collector", "ஆட்சியர்", "மாவட்ட ஆட்சியர்"]
+  - slug: office-mayors
+    canonical_name: Mayors
+    name_ta: மேயர்கள்
+    role: official
+    aliases: ["Mayor", "மேயர்"]
+
+parties:
+  - slug: tvk
+    canonical_name: Tamilaga Vettri Kazhagam
+    name_ta: தமிழக வெற்றி கழகம்
+    is_tvk: true
+    aliases: ["TVK", "தவெக", "தமிழக வெற்றி கழகம்"]
+  - slug: dmk
+    canonical_name: DMK
+    name_ta: திராவிட முன்னேற்றக் கழகம்
+    aliases: ["DMK (opposition)", "திமுக", "தி.மு.க", "Dravida Munnetra Kazhagam"]
+  - slug: aiadmk
+    canonical_name: AIADMK
+    name_ta: அனைத்திந்திய அண்ணா திராவிட முன்னேற்றக் கழகம்
+    aliases: ["அதிமுக", "அ.தி.மு.க", "ADMK"]
+  - slug: bjp
+    canonical_name: BJP
+    name_ta: பாரதிய ஜனதா கட்சி
+    aliases: ["பாஜக", "Bharatiya Janata Party"]
+  - slug: congress
+    canonical_name: Indian National Congress
+    name_ta: காங்கிரஸ்
+    aliases: ["Congress", "INC", "காங்கிரஸ்", "TNCC"]
+  - slug: ntk
+    canonical_name: Naam Tamilar Katchi
+    name_ta: நாம் தமிழர் கட்சி
+    aliases: ["NTK", "நாம் தமிழர்", "ந.த.க"]
+  - slug: pmk
+    canonical_name: PMK
+    name_ta: பாட்டாளி மக்கள் கட்சி
+    aliases: ["பாமக", "Pattali Makkal Katchi"]
+  - slug: vck
+    canonical_name: VCK
+    name_ta: விடுதலைச் சிறுத்தைகள் கட்சி
+    aliases: ["விசிக", "Viduthalai Chiruthaigal Katchi"]
+  - slug: mdmk
+    canonical_name: MDMK
+    name_ta: மறுமலர்ச்சி திராவிட முன்னேற்றக் கழகம்
+    aliases: ["மதிமுக", "Vaiko", "வைகோ"]
+  - slug: dmdk
+    canonical_name: DMDK
+    name_ta: தேசிய முற்போக்கு திராவிட கழகம்
+    aliases: ["தேமுதிக"]
+  - slug: cpi
+    canonical_name: CPI
+    name_ta: இந்திய கம்யூனிஸ்ட் கட்சி
+    aliases: ["Communist Party of India"]
+  - slug: cpim
+    canonical_name: CPI(M)
+    name_ta: மார்க்சிஸ்ட் கம்யூனிஸ்ட் கட்சி
+    aliases: ["CPM", "CPI-M", "மார்க்சிஸ்ட்"]
+
+organizations:
+  - slug: election-commission
+    canonical_name: Election Commission
+    name_ta: தேர்தல் ஆணையம்
+    aliases: ["Election Commission of India", "ECI", "தேர்தல் ஆணையம்"]
+  - slug: tn-government
+    canonical_name: Tamil Nadu Government
+    name_ta: தமிழக அரசு
+    is_tvk: true
+    aliases: ["TN Government", "State Government", "தமிழக அரசு", "தமிழ்நாடு அரசு"]
+
+# Aliases below include the exact composite strings the classifier emits today
+# (e.g. "Transport / road safety") so observed data resolves without fuzz.
+departments:
+  - slug: dept-school-education
+    canonical_name: School education
+    name_ta: பள்ளிக் கல்வி
+    aliases: ["Education", "School education / civic administration", "பள்ளிக் கல்வித்துறை"]
+  - slug: dept-transport
+    canonical_name: Transport
+    name_ta: போக்குவரத்து
+    aliases: ["Transport / road safety", "Road safety", "போக்குவரத்துத்துறை"]
+  - slug: dept-public-safety
+    canonical_name: Public safety
+    name_ta: காவல்துறை
+    aliases: ["Public safety / fire and rescue", "Police", "Fire and rescue", "Law and order", "காவல்துறை"]
+  - slug: dept-local-administration
+    canonical_name: Local administration
+    name_ta: உள்ளாட்சி நிர்வாகம்
+    aliases: ["Municipal administration", "Civic administration", "Corporation", "உள்ளாட்சி"]
+  - slug: dept-health
+    canonical_name: Health
+    name_ta: சுகாதாரம்
+    aliases: ["Health and family welfare", "Medical", "மருத்துவம்", "சுகாதாரம்"]
+  - slug: dept-welfare
+    canonical_name: Welfare
+    name_ta: சமூக நலன்
+    aliases: ["Social welfare", "சமூக நலத்துறை"]
+  - slug: dept-labour-welfare
+    canonical_name: Labour and youth welfare
+    name_ta: தொழிலாளர் நலன்
+    aliases: ["Labour welfare", "Youth welfare", "தொழிலாளர் நலத்துறை"]
+  - slug: dept-agriculture
+    canonical_name: Agriculture
+    name_ta: வேளாண்மை
+    aliases: ["Farming", "வேளாண்துறை"]
+  - slug: dept-electricity
+    canonical_name: Electricity board
+    name_ta: மின்சார வாரியம்
+    aliases: ["Electricity board / anti-corruption", "TNEB", "EB", "Power", "மின்வாரியம்"]
+  - slug: dept-water
+    canonical_name: Water supply
+    name_ta: குடிநீர்
+    aliases: ["Drinking water", "Water resources", "Metro water", "TWAD", "குடிநீர் வழங்கல்"]
+  - slug: dept-highways
+    canonical_name: Highways
+    name_ta: நெடுஞ்சாலைகள்
+    aliases: ["Roads", "சாலைகள்", "நெடுஞ்சாலைத்துறை"]
+  - slug: dept-revenue
+    canonical_name: Revenue
+    name_ta: வருவாய்த்துறை
+    aliases: ["Revenue / disaster management", "Disaster management", "பேரிடர் மேலாண்மை"]
+  - slug: dept-tvk-party-affairs
+    canonical_name: TVK party affairs
+    name_ta: தவெக கட்சி விவகாரங்கள்
+    is_tvk: true
+    aliases: ["Party affairs", "கட்சி விவகாரம்"]

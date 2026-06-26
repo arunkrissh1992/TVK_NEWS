@@ -112,6 +112,54 @@ def test_backfill_preserves_existing_values():
     assert payload["party_action"] == "TVK MLAs protested in Assembly"
 
 
+def test_backfill_coerces_bool_or_number_in_string_field():
+    """Gemma 2B sometimes types a free-text field as a bool (people_impact=false)
+    or number; that is not valid content and previously broke validation."""
+    item = _make_item()
+    payload = {"people_impact": False, "root_cause": True, "topic": 42}
+    _backfill_defaults(payload, item)
+    assert payload["people_impact"] == ""
+    assert payload["root_cause"] == ""
+    assert payload["topic"] == "42"  # a number keeps its string form
+
+
+def test_backfill_coerces_string_into_list_field():
+    item = _make_item()
+    payload = {"talking_points": "Acknowledge the concern", "political_actors": None}
+    _backfill_defaults(payload, item)
+    assert payload["talking_points"] == ["Acknowledge the concern"]
+    assert payload["political_actors"] == []
+
+
+def test_backfill_coerces_string_booleans():
+    item = _make_item()
+    payload = {"people_issue": "true", "needs_human_review": "no"}
+    _backfill_defaults(payload, item)
+    assert payload["people_issue"] is True
+    assert payload["needs_human_review"] is False
+
+
+def test_backfill_output_validates_after_messy_payload():
+    """The point of the hardening: even a messy Gemma payload validates."""
+    from tnmi.contracts import AIAnalysis
+
+    item = _make_item()
+    payload = {
+        "government_relevance": "high",
+        "stance_toward_government": "negative",
+        "sentiment": "negative",
+        "people_impact": False,            # bool in a string field
+        "talking_points": "Single point",  # string in a list field
+        "people_issue": "yes",             # string boolean
+        "confidence": "0.8",
+    }
+    _backfill_defaults(payload, item)
+    analysis = AIAnalysis.model_validate(payload)
+    assert analysis.people_impact == ""
+    assert analysis.talking_points == ["Single point"]
+    assert analysis.people_issue is True
+
+
 def _make_gemma_with_fake_client(client: MagicMock) -> GemmaAnalyzer:
     """Construct a GemmaAnalyzer with a pre-baked fake Ollama client. Skips
     the lazy import + daemon check so we can unit-test analyse() logic."""

@@ -15,9 +15,10 @@ from tnmi.contracts import (
     Severity,
     Stance,
 )
+from tnmi.districts import detect_district
 
 
-PROMPT_VERSION = "tvk-portrayal-v16"
+PROMPT_VERSION = "tvk-portrayal-v19"
 
 
 class AIAnalysisError(RuntimeError):
@@ -159,10 +160,13 @@ def _looks_like_listing_page(title: str, body: str) -> bool:
 # Set is intentionally generous (includes all 38 districts, top politicians,
 # party names, TN-specific institutions) so we never miss a real TN story.
 
+# NOTE: matched with WORD BOUNDARIES (see _looks_like_tn_content), never raw
+# substring — substring search once matched 'theni' inside "strengthening"
+# and let international wire stories into the briefing as TN people-issues.
 _TN_KEYWORDS_EN = (
     # State name + obvious umbrella terms
-    "tamil nadu", "tamilnadu", "tamil-nadu", " tn ", "tn govt", "tn government",
-    "tamilian", "dravidian", "tamil ",
+    "tamil nadu", "tamilnadu", "tamil-nadu", "tn govt", "tn government",
+    "tamilian", "dravidian",
     # 38 districts (lower-cased; common alt spellings included)
     "chennai", "coimbatore", "kovai", "madurai", "tiruchirappalli", "trichy",
     "salem", "tirunelveli", "vellore", "erode", "thoothukudi", "tuticorin",
@@ -175,7 +179,7 @@ _TN_KEYWORDS_EN = (
     # TN political parties + leaders
     "dmk", "aiadmk", "tvk", "ntk", "pmk", "vck", "mdmk",
     "stalin", "udhayanidhi", "edappadi", "palaniswami",
-    "anbumani", "ramadoss", "vijay ", "thirumavalavan", "vaiko",
+    "anbumani", "ramadoss", "vijay", "thirumavalavan", "vaiko",
     "kanimozhi", "tamilisai", "annamalai", "rajinikanth", "kamal haasan",
     # TN-specific institutions / topics
     "cauvery", "kaveri", "mullaperiyar", "tn assembly",
@@ -183,8 +187,9 @@ _TN_KEYWORDS_EN = (
 )
 
 _TN_KEYWORDS_TA = (
-    # State
-    "தமிழ்நாடு", "தமிழக", "தமிழகம்", "தமிழன்", "தமிழ்",
+    # State (தமிழக covers தமிழகம்/தமிழகத்தில்; bare தமிழ் is intentionally
+    # absent — it matches any mention of the Tamil language anywhere on earth)
+    "தமிழ்நாடு", "தமிழ்நாட்", "தமிழக",
     # Major districts
     "சென்னை", "கோவை", "கோயம்புத்தூர்", "மதுரை", "திருச்சி", "திருச்சிராப்பள்ளி",
     "சேலம்", "திருநெல்வேலி", "வேலூர்", "ஈரோடு", "தூத்துக்குடி", "கன்னியாகுமரி",
@@ -245,24 +250,208 @@ def _not_relevant_analysis(*, title: str, evidence_quote: str, issue_category: s
     )
 
 
-def _looks_like_tn_content(title: str, body: str) -> bool:
-    """True if the article references Tamil Nadu — state name, any of the 38
-    districts, TN political parties or leaders, or TN-specific institutions.
+_TN_KEYWORDS_EN_RE = re.compile(
+    r"\b(" + "|".join(re.escape(token) for token in _TN_KEYWORDS_EN) + r")\b",
+    re.IGNORECASE,
+)
+# 'erode' is also an English verb — accept only the capitalised place name.
+_ERODE_VERB_RE = re.compile(r"\berode[sd]?\b|\beroding\b")
 
-    Heuristic only; OpenAI is the ground truth when available. We accept
-    false positives (article mentions Chennai in passing) because over-
-    including is cheaper than dropping a real TN story.
+
+def _tamil_script_ratio(text: str) -> float:
+    if not text:
+        return 0.0
+    tamil = sum(1 for ch in text if "஀" <= ch <= "௿")
+    return tamil / len(text)
+
+
+# ---------------------------------------------------------------------------
+# Out-of-scope gate
+# ---------------------------------------------------------------------------
+# A Tamil-language story with no explicit TN marker used to pass the relevance
+# gate purely because it was ≥30% Tamil script. That let Tamil-script FIFA /
+# World Cup / foreign-affairs / film-gossip wire copy into a *government*
+# briefing. These topics are out of scope no matter what language they are
+# written in. URL sections (where the paper exposes them) are a strong booster.
+
+# English markers are matched on WORD BOUNDARIES so short tokens cannot match
+# inside other words ('odi' must not fire on "Modi", 'ipl' not on "multiple").
+#
+# HARD out of scope — international / professional sport and film-trade gossip.
+# These never belong in a government briefing even when a TN place is named
+# (e.g. "Chennai Super Kings win IPL"), so they override the TN-keyword match.
+_SPORT_FILM_EN_RE = re.compile(
+    r"\b("
+    r"fifa|world cup|t20|t-20|odi|ipl|isl|olympics?|paralympics?|uefa|la liga|"
+    r"premier league|bundesliga|serie a|ballon d'?or|wimbledon|grand slam|"
+    r"champions league|champions trophy|asia cup|world test|"
+    r"box office|teaser|trailer|first look|movie review|film review"
+    r")\b",
+    re.IGNORECASE,
+)
+_SPORT_FILM_TA = (
+    "கால்பந்து", "கிரிக்கெட்", "உலகக் கோப்பை", "உலக கோப்பை", "டெஸ்ட் போட்டி",
+    "ஐபிஎல்", "ஒலிம்பிக்", "டி20", "டி 20", "டி-20",
+    "பாக்ஸ் ஆபீஸ்", "டிரெய்லர்", "ட்ரெய்லர்", "டீசர்", "டீஸர்", "ஃபர்ஸ்ட் லுக்",
+)
+_SPORT_FILM_URL_SECTIONS = (
+    "/sportsnews/", "/sports-news/", "/sports/", "/cinema/", "/movies/",
+    "/entertainment/", "/video/",
+)
+# SOFT out of scope — foreign affairs with no Tamil-Nadu nexus. Only applied
+# when the article carries NO explicit TN marker, because a genuine TN-government
+# story may legitimately mention a foreign country (trade, diaspora, delegation).
+_FOREIGN_EN_RE = re.compile(
+    r"\b("
+    r"pakistan|afghanistan|ukraine|russia|china|beijing|moscow|"
+    r"israel|palestine|gaza|iran|iraq|syria|"
+    r"thailand|malaysia|singapore|nepal|bangladesh|myanmar|"
+    r"usa|america|washington|"
+    r"britain|england|france|germany|japan|korea|canada|australia|"
+    r"trump|putin|zelensky|netanyahu|biden"
+    r")\b",
+    re.IGNORECASE,
+)
+_FOREIGN_TA = (
+    "பாகிஸ்தான்", "ஆப்கானிஸ்தான்", "உக்ரைன்", "ரஷ்யா", "சீனா",
+    "இஸ்ரேல்", "காசா", "ஈரான்", "ஈராக்", "சிரியா",
+    "தாய்லாந்து", "மலேசியா", "சிங்கப்பூர்", "நேபாள", "வங்காளதேச", "வங்கதேச",
+    "அமெரிக்க", "வாஷிங்டன்", "இங்கிலாந்து", "பிரான்ஸ்", "ஜெர்மனி", "ஜப்பான்",
+    "டிரம்ப்", "புதின்",
+)
+_FOREIGN_URL_SECTIONS = ("/worldnews/", "/world-news/")
+
+# Other Indian states + their major cities. A Tamil-language story about Kerala
+# or Karnataka is still out of scope for a *Tamil Nadu* briefing. Like the
+# foreign markers this is SOFT — only applied when the article carries no
+# explicit TN marker, so genuine cross-border stories (Cauvery, Mullaperiyar, a
+# TN CM visiting another state) that name a TN place are kept.
+_OTHER_STATE_EN_RE = re.compile(
+    r"\b("
+    r"kerala|karnataka|andhra pradesh|andhra|telangana|maharashtra|gujarat|"
+    r"rajasthan|punjab|haryana|bihar|odisha|west bengal|assam|jharkhand|"
+    r"chhattisgarh|madhya pradesh|uttar pradesh|uttarakhand|himachal|goa|"
+    r"manipur|meghalaya|tripura|nagaland|mizoram|sikkim|"
+    r"bengaluru|bangalore|mysuru|mysore|mangaluru|mangalore|hubli|"
+    r"kochi|cochin|thiruvananthapuram|trivandrum|kozhikode|kollam|thrissur|"
+    r"hyderabad|secunderabad|vijayawada|visakhapatnam|vizag|guntur|tirupati|"
+    r"mumbai|pune|nagpur|kolkata|ahmedabad|surat|jaipur|lucknow|patna|bhopal|"
+    r"new delhi"
+    r")\b",
+    re.IGNORECASE,
+)
+_OTHER_STATE_TA = (
+    "கேரள", "கர்நாடக", "ஆந்திர", "தெலங்கானா", "தெலுங்கானா", "மகாராஷ்டிர",
+    "குஜராத்", "ராஜஸ்தான்", "பஞ்சாப்", "பீகார்", "ஒடிசா", "மேற்கு வங்க", "அஸ்ஸாம்",
+    "பெங்களூரு", "பெங்களூர்", "மைசூர்", "மங்களூரு", "கொச்சி", "திருவனந்தபுரம்",
+    "ஐதராபாத்", "ஹைதராபாத்", "விஜயவாடா", "விசாகப்பட்டினம்",
+    "மும்பை", "புனே", "கொல்கத்தா", "புது தில்லி", "புதுடெல்லி", "டெல்லி",
+)
+
+
+# A story's URL SECTION is authoritative about which desk filed it. A
+# `/kerala/` or `/sportsnews/` article is out of scope even when its scraped
+# body mentions "Tamil Nadu" — that match is usually site navigation/footer
+# boilerplate (e.g. The News Minute lists a "Tamil Nadu" section on every page),
+# not the story's subject. So the URL section overrides the TN-keyword check.
+_OTHER_STATE_URL_SECTIONS = (
+    "/kerala/", "/karnataka/", "/andhra-pradesh/", "/andhrapradesh/", "/andhra/",
+    "/telangana/", "/maharashtra/", "/gujarat/", "/rajasthan/", "/punjab/",
+    "/bihar/", "/odisha/", "/west-bengal/", "/assam/", "/jharkhand/",
+    "/madhya-pradesh/", "/uttar-pradesh/", "/uttarakhand/", "/goa/",
+    "/delhi/", "/mumbai/", "/bengaluru/", "/bangalore/", "/hyderabad/",
+    "/kochi/", "/kolkata/",
+)
+
+
+def _is_hard_out_of_scope(title: str, body: str, source_url: str = "") -> bool:
+    """Topics that never belong in a government briefing even when a TN place is
+    named — international / professional sport, film-trade gossip, and stories
+    a paper filed under another state's / foreign desk (URL section is the
+    authoritative signal, ahead of any TN keyword in scraped page chrome)."""
+    url = (source_url or "").lower()
+    if any(section in url for section in _SPORT_FILM_URL_SECTIONS):
+        return True
+    if any(section in url for section in _OTHER_STATE_URL_SECTIONS):
+        return True
+    if any(section in url for section in _FOREIGN_URL_SECTIONS):
+        return True
+    haystack_lower = f"{title}\n{body}".lower()
+    haystack_original = f"{title}\n{body}"
+    if _SPORT_FILM_EN_RE.search(haystack_lower):
+        return True
+    return any(token in haystack_original for token in _SPORT_FILM_TA)
+
+
+def _is_out_of_scope(title: str, body: str, source_url: str = "") -> bool:
+    """Hard out of scope (sport / film) OR foreign affairs with no TN nexus.
+    Used to keep both the relevance gate's Tamil-script fallback and people-issue
+    detection free of off-topic copy that merely happens to be in Tamil."""
+    if _is_hard_out_of_scope(title, body, source_url):
+        return True
+    url = (source_url or "").lower()
+    if any(section in url for section in _FOREIGN_URL_SECTIONS):
+        return True
+    haystack_lower = f"{title}\n{body}".lower()
+    haystack_original = f"{title}\n{body}"
+    if _FOREIGN_EN_RE.search(haystack_lower):
+        return True
+    if any(token in haystack_original for token in _FOREIGN_TA):
+        return True
+    # Other Indian states / non-TN cities (e.g. a Kerala or Karnataka story).
+    if _OTHER_STATE_EN_RE.search(haystack_lower):
+        return True
+    return any(token in haystack_original for token in _OTHER_STATE_TA)
+
+
+def _looks_like_tn_content(title: str, body: str, source_url: str = "") -> bool:
+    """True if the article belongs in a Tamil Nadu government briefing.
+
+    An article qualifies when it names Tamil Nadu — the state, any of the 38
+    districts, TN parties/leaders, or TN-specific institutions (English tokens
+    matched on WORD BOUNDARIES so 'theni' can't match "strengthening").
+
+    A mostly-Tamil article with no explicit marker is a hyperlocal TN story
+    (ward roads, school events) and is kept — UNLESS it is out of scope.
+    Sport / film is rejected outright; foreign affairs is rejected only when no
+    TN marker is present. Previously the Tamil-script ratio alone was enough to
+    pass, which let Tamil-language FIFA and world-news copy into the briefing.
     """
     if not title and not body:
         return False
-    haystack = f"{title}\n{body}".lower()
-    if any(token in haystack for token in _TN_KEYWORDS_EN):
+    # Sport / film never qualifies, even with a TN place name in the text.
+    if _is_hard_out_of_scope(title, body, source_url):
+        return False
+    haystack = f"{title}\n{body}"
+    for match in _TN_KEYWORDS_EN_RE.finditer(haystack):
+        token = match.group(1).lower()
+        if token == "erode" and match.group(1)[0].islower():
+            continue  # the verb, not the district
         return True
     if any(token in body for token in _TN_KEYWORDS_TA):
         return True
     if any(token in title for token in _TN_KEYWORDS_TA):
         return True
+    # No explicit TN marker: keep a Tamil-language local story, but only if it
+    # is not an out-of-scope topic that merely happens to be written in Tamil.
+    if _tamil_script_ratio(haystack) >= 0.3 and not _is_out_of_scope(title, body, source_url):
+        return True
     return False
+
+
+# Named individuals worth tracking as their own dossier, in addition to the
+# party/office bucket. The emitted surface MUST match an alias in
+# configs/entities.seed.yaml so the resolver maps it to that person entity —
+# this is what lights up per-figure scorecards (Stalin distinct from "DMK").
+_NAMED_PERSON_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("M.K. Stalin", ("stalin", "ஸ்டாலின்")),
+    ("Udhayanidhi Stalin", ("udhayanidhi", "உதயநிதி")),
+    ("Edappadi K. Palaniswami", ("edappadi", "palaniswami", "eps", "எடப்பாடி", "பழனிசாமி")),
+    ("K. Annamalai", ("annamalai", "அண்ணாமலை")),
+    ("Seeman", ("seeman", "சீமான்")),
+    ("Anbumani Ramadoss", ("anbumani", "அன்புமணி")),
+    ("Thol. Thirumavalavan", ("thirumavalavan", "திருமாவளவன்")),
+)
 
 
 def _extract_political_actors(title: str, body: str) -> list[str]:
@@ -272,7 +461,15 @@ def _extract_political_actors(title: str, body: str) -> list[str]:
     for label, tokens in _ACTOR_KEYWORDS:
         if any(_actor_token_matches(token, haystack_lower, haystack_original) for token in tokens):
             actors.append(label)
-    return actors[:8]
+    # Named individuals are additive: a Stalin story still carries the
+    # "DMK (opposition)" bucket AND now a distinct "M.K. Stalin" actor.
+    for label, tokens in _NAMED_PERSON_KEYWORDS:
+        if any(_actor_token_matches(token, haystack_lower, haystack_original) for token in tokens):
+            actors.append(label)
+    # Preserve first-seen order while de-duplicating.
+    seen: set[str] = set()
+    unique = [a for a in actors if not (a in seen or seen.add(a))]
+    return unique[:10]
 
 
 def _actor_token_matches(token: str, haystack_lower: str, haystack_original: str) -> bool:
@@ -375,6 +572,78 @@ def _contextual_recommended_step(
     if focus:
         return f"{owner}: verify {targets} for '{focus}' before statement or support."
     return f"{owner}: verify {targets} before statement or support."
+
+
+# ---------------------------------------------------------------------------
+# People-issue detection (precise)
+# ---------------------------------------------------------------------------
+# The old rule — people_issue = (any people keyword) OR (any negative keyword) —
+# fired on a single common word ("water", "road", "death") and flagged ~79% of
+# relevant items, including sports copy. A real public/people issue needs a
+# public-service DOMAIN together with a PROBLEM indicator, or a genuine
+# public-safety incident. English tokens use word boundaries.
+_CIVIC_DOMAIN_EN_RE = re.compile(
+    r"\b("
+    r"water|drinking water|electricity|power supply|power cut|powercut|"
+    r"road|roads|street|streets|bus|transport|train|railway|"
+    r"hospital|clinic|phc|medical|healthcare|"
+    r"school|schools|college|education|student|students|"
+    r"housing|ration|pension|sewage|sewerage|drainage|garbage|sanitation|toilet|"
+    r"job|jobs|employment|unemploy\w*|wage|wages|"
+    r"farmer|farmers|agriculture|crop|crops|irrigation"
+    r")\b",
+    re.IGNORECASE,
+)
+_PROBLEM_EN_RE = re.compile(
+    r"\b("
+    r"shortage|scarcity|cut|cuts|without|lack|denied|deny|delay|delayed|pending|"
+    r"damage|damaged|broken|pothole|potholes|contaminat\w*|polluted|pollution|"
+    r"dirty|leak|leakage|overflow|protest|protests|strike|demand|demands|"
+    r"grievance|grievances|complaint|complaints|stranded|unsafe|danger|hazard|"
+    r"collapse|collapsed|closed|shut|bribe|corrupt\w*|eviction|encroach\w*|"
+    r"stagnant|blocked|disrupt\w*|suffer\w*|affected|deprived|negligence"
+    r")\b",
+    re.IGNORECASE,
+)
+_SAFETY_INCIDENT_EN_RE = re.compile(
+    r"\b("
+    r"fire|blaze|accident|crash|drown|drowned|electrocut\w*|stampede|"
+    r"building collapse|wall collapse|gas leak"
+    r")\b",
+    re.IGNORECASE,
+)
+_CIVIC_DOMAIN_TA = (
+    "குடிநீர்", "தண்ணீர்", "மின்சாரம்", "மின்வெட்டு", "சாலை", "தெரு",
+    "பேருந்து", "ரயில்", "மருத்துவமனை", "மருத்துவம்", "பள்ளி", "கல்லூரி",
+    "மாணவ", "கல்வி", "வீட்டுவசதி", "குடியிருப்பு", "ரேஷன்", "ஓய்வூதியம்",
+    "கழிவுநீர்", "வடிகால்", "குப்பை", "கழிப்பறை", "வேலைவாய்ப்பு", "ஊதியம்",
+    "விவசாய", "பயிர்", "நீர்ப்பாசன",
+)
+_PROBLEM_TA = (
+    "பற்றாக்குறை", "தட்டுப்பாடு", "வெட்டு", "இல்லாமல்", "இல்லை", "பாதிப்பு",
+    "பாதிக்கப்பட்ட", "சேதம்", "புகார்", "போராட்டம்", "மறியல்", "கோரிக்கை",
+    "தாமதம்", "மாசு", "கசிவு", "ஆபத்து", "மூடல்", "அவலம்", "துயரம்",
+)
+_SAFETY_INCIDENT_TA = (
+    "தீ விபத்து", "தீவிபத்து", "விபத்து", "மூழ்கி", "மின்தாக்க",
+    "சரிந்து", "இடிந்து", "நெரிசல்",
+)
+
+
+def _detect_people_issue(title: str, body: str, source_url: str = "") -> bool:
+    """A genuine Tamil-Nadu public/people issue — not merely a negative tone or
+    a passing common word. Requires a public-service DOMAIN together with a
+    PROBLEM indicator, or a real public-safety incident. Out-of-scope topics
+    (sport / foreign affairs / film) are never people issues."""
+    if _is_out_of_scope(title, body, source_url):
+        return False
+    lower = f"{title}\n{body}".lower()
+    original = f"{title}\n{body}"
+    if _SAFETY_INCIDENT_EN_RE.search(lower) or any(t in original for t in _SAFETY_INCIDENT_TA):
+        return True
+    domain = bool(_CIVIC_DOMAIN_EN_RE.search(lower)) or any(t in original for t in _CIVIC_DOMAIN_TA)
+    problem = bool(_PROBLEM_EN_RE.search(lower)) or any(t in original for t in _PROBLEM_TA)
+    return domain and problem
 
 
 def _public_issue_profile(title: str, body: str) -> PublicIssueProfile:
@@ -542,7 +811,7 @@ class MockAIAnalyzer:
         # Tamil Nadu relevance gate: if the article never references TN
         # (state, any district, a TN party/leader, or a TN-specific topic),
         # it's irrelevant to the chief's briefing — skip it.
-        if not _looks_like_tn_content(title, body):
+        if not _looks_like_tn_content(title, body, item.source_url):
             evidence_quote = _first_sentence(body) or title
             return _not_relevant_analysis(
                 title=title,
@@ -557,7 +826,7 @@ class MockAIAnalyzer:
         )
         positive = any(k in text for k in _POSITIVE_KEYWORDS)
         negative = any(k in text for k in _NEGATIVE_KEYWORDS)
-        people_issue = _has_people_issue(text, body) or negative
+        people_issue = _detect_people_issue(title, body, item.source_url)
         actors = _extract_political_actors(title, body)
         issue_profile = _public_issue_profile(title, body) if people_issue else None
         issue_severity = issue_profile.severity if issue_profile else Severity.LOW
@@ -706,7 +975,7 @@ class MockAIAnalyzer:
             target="TVK leadership" if is_party else "Public matter",
             political_actors=actors,
             department="general",
-            district="unspecified",
+            district=detect_district(title, body) or "unspecified",
             scheme=None,
             topic=title or "news item",
             issue_category=(
@@ -771,12 +1040,21 @@ def _truncate(text: str, limit: int) -> str:
 
 
 class OpenAIAnalyzer:
-    def __init__(self, api_key: str, model_name: str = "gpt-5.4-mini") -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model_name: str = "gpt-5.4-mini",
+        *,
+        subject: str = "TVK",
+        leader: str = "Vijay",
+        governing: bool = True,
+    ) -> None:
         self.client = OpenAI(api_key=api_key)
         self.model_name = model_name
+        self._lens = {"subject": subject, "leader": leader, "governing": governing}
 
     def analyze(self, item: NormalizedItem) -> AIAnalysis:
-        prompt = build_classification_prompt(item)
+        prompt = build_classification_prompt(item, **getattr(self, "_lens", {}))
         response = self.client.responses.parse(
             model=self.model_name,
             input=[
@@ -801,18 +1079,56 @@ class OpenAIAnalyzer:
         return parsed
 
 
-def build_classification_prompt(item: NormalizedItem) -> str:
+def build_classification_prompt(
+    item: NormalizedItem,
+    *,
+    subject: str = "TVK",
+    leader: str = "Vijay",
+    governing: bool = True,
+) -> str:
+    # The political lens is the only per-tenant variable: which party is "us"
+    # and whether it holds government. Defaults reproduce the TVK-governing
+    # prompt verbatim. ponytail: same-vertical SaaS — geography/sources/roster
+    # are shared TN, only the subject changes.
+    if governing:
+        roster_clause = (
+            f"who hold public office — MLAs, ministers, or the Chief Minister — when those\n"
+            f"office-holders belong to {subject}. The official conduct of a {subject} office-holder\n"
+            f"counts as {subject} activity, not merely government activity."
+        )
+        portrayal_def = (
+            f"positive = good news for {subject}, {leader}, or a {subject} office-holder\n"
+            f"     (scheme delivered, praise, achievement, decisive response); negative =\n"
+            f"     failure, broken promise, scandal, criticism, or a governance lapse on a {subject}\n"
+            f"     office-holder's watch"
+        )
+        gov_axis = (
+            f"  an institution. When {subject} runs the government the two usually agree, but a\n"
+            f"  bureaucratic lapse with no {subject} person named is government-negative while\n"
+            f"  {subject.lower()}_portrayal stays neutral; {subject} opposing a harmful decision can be"
+        )
+    else:
+        roster_clause = (
+            f"and its spokespeople. {subject} is in OPPOSITION — it does not hold government.\n"
+            f"A government failure is not {subject}'s failure; it is often an opening {subject} can use."
+        )
+        portrayal_def = (
+            f"positive = good for {subject} or {leader} (effective opposition, exposing a\n"
+            f"     government failure, winning public support, a lapse {subject} can capitalise on); negative =\n"
+            f"     a {subject} scandal, infighting, a broken {subject} promise, or {subject} being outmanoeuvred"
+        )
+        gov_axis = (
+            f"  an institution. {subject} does NOT run the government, so a government failure is\n"
+            f"  government-negative yet often {subject.lower()}_portrayal POSITIVE; a government win can be"
+        )
     return f"""
-You are preparing a 30-second daily briefing for the TVK party leadership office
+You are preparing a 30-second daily briefing for the {subject} party leadership office
 from a Tamil-Nadu newspaper article. Label every article as a political
 intelligence record, not just a sentiment row.
 
-Who counts as TVK: Tamilaga Vettri Kazhagam (TVK), led by Vijay. The TVK
-"roster" is Vijay, the party organisation and its cadre, AND any TVK members
-who hold public office — MLAs, ministers, or the Chief Minister — when those
-office-holders belong to TVK. The official conduct of a TVK office-holder
-counts as TVK activity, not merely government activity. People from other
-parties (DMK, AIADMK, BJP, NTK, PMK, etc.) are NOT TVK, even when they hold
+Who counts as {subject}: the party led by {leader}, its organisation and cadre, AND any {subject} members
+{roster_clause} People from other
+parties are NOT {subject}, even when they hold
 office; their conduct never sets tvk_portrayal to positive or negative.
 
 The leader's decision loop is: WHAT happened → WHY → SO WHAT → WHAT NOW.
@@ -820,36 +1136,31 @@ The leader's decision loop is: WHAT happened → WHY → SO WHAT → WHAT NOW.
 Two independent judgement axes — score each on its own evidence, never assume
 they agree:
 - tvk_portrayal is the HEADLINE label that drives the leadership dashboard:
-  how this news reflects on TVK, Vijay, the party, or a TVK office-holder.
+  how this news reflects on {subject}, {leader}, the party, or a {subject} office-holder.
 - stance_toward_government tracks the sitting administration's performance as
-  an institution. When TVK runs the government the two usually agree, but a
-  bureaucratic lapse with no TVK person named is government-negative while
-  tvk_portrayal stays neutral; TVK opposing a harmful decision can be
+{gov_axis}
   tvk_portrayal positive while government stance is negative.
 
 Required output:
 
-  1. TVK PORTRAYAL (tvk_portrayal) — positive / negative / mixed / neutral, the
-     headline label. positive = good news for TVK, Vijay, or a TVK office-holder
-     (scheme delivered, praise, achievement, decisive response); negative =
-     failure, broken promise, scandal, criticism, or a governance lapse on a TVK
-     office-holder's watch; mixed = both signals present; neutral = no TVK person
+  1. {subject} PORTRAYAL (tvk_portrayal) — positive / negative / mixed / neutral, the
+     headline label. {portrayal_def}; mixed = both signals present; neutral = no {subject} person
      portrayed either way.
   2. GOVERNMENT STANCE (stance_toward_government) — positive / negative / mixed /
      neutral toward the Tamil Nadu administration in office, judged as an
      institution. Keep this field for government-performance tracking.
-  3. TVK RELEVANCE (tvk_relevance) — high when TVK, Vijay, or a TVK office-holder
+  3. {subject} RELEVANCE (tvk_relevance) — high when {subject}, {leader}, or a {subject} office-holder
      is directly involved; medium when the story is a public issue or political
-     opening TVK may need to act on; low for background TN context; none for
+     opening {subject} may need to act on; low for background TN context; none for
      out-of-scope.
   4. PEOPLE ISSUE (people_issue) — true when ordinary people face or benefit
      from a public matter: welfare, civic services, jobs, health, education,
      safety, law and order, corruption, price rise, farmers, youth, women, etc.
   5. POLITICAL ACTORS (political_actors) — list explicitly mentioned actors:
-     TVK, Vijay, party members, MLAs, ministers, Chief Minister, departments,
+     {subject}, {leader}, party members, MLAs, ministers, Chief Minister, departments,
      parties, or named officials. Do not invent names.
-  6. PARTY ACTIVITY (party_action) — what TVK members or the party leadership
-     did, well or badly, that this article reports. Empty if not about TVK.
+  6. PARTY ACTIVITY (party_action) — what {subject} members or the party leadership
+     did, well or badly, that this article reports. Empty if not about {subject}.
   7. PEOPLE'S EXPERIENCE (people_impact) — what ordinary people are facing or
      benefiting from in the area the article covers. Empty if not applicable.
   8. PUBLIC ISSUE (public_issue) — one short issue label, e.g. "drinking water
@@ -908,7 +1219,7 @@ Field guidance:
 - recommended_step: ≤ 22 words. Concrete and feasible. Empty if no action.
 - For public harm or civic issues, recommended_step must name what to verify
   locally before any public statement.
-- action_owner: "TVK leadership office", "District field team",
+- action_owner: "{subject} leadership office", "District field team",
   "Policy research team", "Media monitoring desk", or a similarly concrete owner.
 - action_type: one compact snake_case action category.
 - action_priority: low / medium / high / critical.

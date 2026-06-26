@@ -3,13 +3,15 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime
-from typing import Any, Protocol, Sequence
+from typing import Any, Iterator, Literal, Protocol, Sequence
 
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tnmi.storage import AIAnalysisRecord, RawItemRecord
+from tnmi.entity_api import entity_dossier
+from tnmi.resolver import normalize_surface
+from tnmi.storage import AIAnalysisRecord, EntityAliasRecord, EntityRecord, RawItemRecord
 
 
 logger = logging.getLogger(__name__)
@@ -102,10 +104,27 @@ class ChatAnswer(BaseModel):
     used_ai: bool
 
 
+class ChatTurn(BaseModel):
+    """One prior message in the conversation, used for multi-turn context.
+
+    Only the last few turns are sent to the model — enough to resolve
+    references like "the second one" without bloating the prompt.
+    """
+
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
+
+
 class ChatAIProvider(Protocol):
     model_name: str
 
-    def answer(self, question: str, evidence: Sequence[ChatEvidence]) -> str:
+    def answer(
+        self,
+        question: str,
+        evidence: Sequence[ChatEvidence],
+        *,
+        dossier_context: str = "",
+    ) -> str:
         ...
 
 
@@ -122,12 +141,23 @@ class EvidenceOnlyChatProvider:
 
     model_name = "evidence-only"
 
-    def answer(self, question: str, evidence: Sequence[ChatEvidence]) -> str:
+    def answer(
+        self,
+        question: str,
+        evidence: Sequence[ChatEvidence],
+        *,
+        dossier_context: str = "",
+    ) -> str:
         del question
         if not evidence:
             return _INSUFFICIENT_ANSWER
 
-        lines = ["From the stored newspaper evidence:"]
+        lines: list[str] = []
+        if dossier_context.strip():
+            lines.append("From the knowledge graph (aggregate across all coverage):")
+            lines.extend(dossier_context.strip().splitlines())
+            lines.append("")
+        lines.append("From the stored newspaper evidence:")
         for index, item in enumerate(evidence[:3], start=1):
             summary = item.summary or item.snippet
             line = f"{index}. {summary} ({item.source_name}, {item.stance})."
@@ -157,11 +187,19 @@ class OllamaChatProvider:
         self._model = model
         self.model_name = f"ollama/{model}"
 
-    def answer(self, question: str, evidence: Sequence[ChatEvidence]) -> str:
+    def answer(
+        self,
+        question: str,
+        evidence: Sequence[ChatEvidence],
+        *,
+        dossier_context: str = "",
+    ) -> str:
         if not evidence:
             return _INSUFFICIENT_ANSWER
 
-        prompt = _build_chat_prompt(question=question, evidence=evidence)
+        prompt = _build_chat_prompt(
+            question=question, evidence=evidence, dossier_context=dossier_context
+        )
         try:
             response = self._client.generate(
                 model=self._model,
@@ -179,6 +217,45 @@ class OllamaChatProvider:
         if not text:
             raise ChatAIUnavailable("Ollama returned an empty chat answer")
         return text
+
+    def stream_answer(
+        self,
+        question: str,
+        evidence: Sequence[ChatEvidence],
+        *,
+        history: Sequence[ChatTurn] | None = None,
+        dossier_context: str = "",
+    ) -> Iterator[str]:
+        """Yield the grounded answer as token fragments as the model produces
+        them, so the UI can render a live, typing-style response instead of a
+        ~10 s blank wait. Raises ChatAIUnavailable if the daemon is unreachable
+        so the caller can fall back to the evidence-only answer."""
+        if not evidence:
+            yield _INSUFFICIENT_ANSWER
+            return
+
+        prompt = _build_chat_prompt(
+            question=question, evidence=evidence, history=history, dossier_context=dossier_context
+        )
+        try:
+            stream = self._client.generate(
+                model=self._model,
+                prompt=prompt,
+                stream=True,
+                options={
+                    "temperature": 0.1,
+                    "num_predict": 700,
+                },
+            )
+            for chunk in stream:
+                # NB: do NOT strip — chunk text carries the spaces between tokens.
+                fragment = _ollama_chunk_text(chunk)
+                if fragment:
+                    yield fragment
+        except Exception as exc:  # noqa: BLE001 - external AI runtime boundary
+            raise ChatAIUnavailable(
+                f"Ollama chat streaming failed: {exc.__class__.__name__}"
+            ) from exc
 
 
 def retrieve_chat_evidence(
@@ -240,9 +317,13 @@ def answer_question(
             used_ai=False,
         )
 
+    dossier_context = build_dossier_context(session, clean_question)
+
     if provider is not None:
         try:
-            answer = provider.answer(clean_question, evidence).strip()
+            answer = provider.answer(
+                clean_question, evidence, dossier_context=dossier_context
+            ).strip()
             if answer:
                 return ChatAnswer(
                     answer=answer,
@@ -255,7 +336,7 @@ def answer_question(
 
     fallback = EvidenceOnlyChatProvider()
     return ChatAnswer(
-        answer=fallback.answer(clean_question, evidence),
+        answer=fallback.answer(clean_question, evidence, dossier_context=dossier_context),
         evidence=evidence,
         model_name=fallback.model_name,
         used_ai=False,
@@ -400,7 +481,98 @@ def _text_window(text: str, terms: Sequence[str], max_chars: int = 320) -> str:
     return snippet
 
 
-def _build_chat_prompt(*, question: str, evidence: Sequence[ChatEvidence]) -> str:
+# Entity types worth pulling a dossier for when named in a question. Sources are
+# excluded — "what does The Hindu say" is a retrieval query, not a dossier ask.
+_DOSSIER_ENTITY_TYPES = ("person", "party", "office", "district", "department", "scheme")
+_DOSSIER_LEAN = {
+    "positive": "net favourable",
+    "negative": "net critical",
+    "mixed": "mixed",
+    "neutral": "mostly neutral",
+}
+
+
+def resolve_question_entities(session: Session, question: str, *, limit: int = 3) -> list[str]:
+    """Find canonical entities named in the question, longest alias first.
+
+    Cheap and exact: scans the normalized question for every known alias so
+    "how is Stalin being covered" resolves to the M.K. Stalin dossier. Short
+    ASCII aliases (CM, MP) require a word-boundary hit to avoid matching inside
+    other words; Tamil aliases match as substrings.
+    """
+    norm_q = normalize_surface(question)
+    if not norm_q:
+        return []
+    rows = session.execute(
+        select(EntityAliasRecord.normalized, EntityRecord.slug, EntityRecord.entity_type)
+        .join(EntityRecord, EntityRecord.id == EntityAliasRecord.entity_id)
+        .where(EntityRecord.status == "active")
+        .where(EntityRecord.entity_type.in_(_DOSSIER_ENTITY_TYPES))
+    ).all()
+    # Longest aliases first so "m k stalin" wins over "stalin" (same entity) and
+    # multi-word place names beat incidental short tokens.
+    rows = sorted(rows, key=lambda r: len(r[0]), reverse=True)
+    found: list[str] = []
+    for normalized, slug, _etype in rows:
+        if not normalized or slug in found:
+            continue
+        if normalized.isascii() and len(normalized) <= 3:
+            if re.search(rf"\b{re.escape(normalized)}\b", norm_q) is None:
+                continue
+        elif normalized not in norm_q:
+            continue
+        found.append(slug)
+        if len(found) >= limit:
+            break
+    return found
+
+
+def _dossier_line(dossier: dict[str, Any]) -> str:
+    bits = [dossier["name"]]
+    descr = " / ".join(
+        x for x in [dossier.get("role", "").replace("_", " "), dossier.get("party", "")] if x
+    )
+    if descr:
+        bits.append(f"({descr})")
+    fav = dossier.get("favorability")
+    fav_text = f"favourability {fav}/100" if fav is not None else "favourability n/a"
+    parts = [
+        f"{dossier['mention_count']} mentions ({dossier['mention_count_30d']} in last 30d)",
+        fav_text,
+        _DOSSIER_LEAN.get(dossier.get("dominant", "neutral"), "mixed"),
+    ]
+    co = ", ".join(c["name"] for c in dossier.get("co_mentions", [])[:4])
+    if co:
+        parts.append(f"appears with {co}")
+    cats = ", ".join(dossier.get("top_categories", [])[:3])
+    if cats:
+        parts.append(f"issues: {cats}")
+    dists = ", ".join(d["district"] for d in dossier.get("top_districts", [])[:3])
+    if dists:
+        parts.append(f"districts: {dists}")
+    return f"- {' '.join(bits)} — " + "; ".join(parts) + "."
+
+
+def build_dossier_context(session: Session, question: str, *, limit: int = 3) -> str:
+    """A compact aggregate brief for entities named in the question, drawn from
+    the knowledge graph — the over-time context plain keyword retrieval cannot
+    give. Empty string when no known entity is named."""
+    slugs = resolve_question_entities(session, question, limit=limit)
+    lines: list[str] = []
+    for slug in slugs:
+        dossier = entity_dossier(session, slug, evidence_limit=0)
+        if dossier and dossier["mention_count"] > 0:
+            lines.append(_dossier_line(dossier))
+    return "\n".join(lines)
+
+
+def _build_chat_prompt(
+    *,
+    question: str,
+    evidence: Sequence[ChatEvidence],
+    history: Sequence[ChatTurn] | None = None,
+    dossier_context: str = "",
+) -> str:
     evidence_blocks: list[str] = []
     include_tamil_note = _contains_tamil(question) or any(
         _contains_tamil(item.snippet) or item.language.lower().startswith("ta")
@@ -428,17 +600,41 @@ def _build_chat_prompt(*, question: str, evidence: Sequence[ChatEvidence]) -> st
         if include_tamil_note
         else "Answer in clear English."
     )
+
+    history_block = ""
+    recent = [turn for turn in (history or []) if turn.content.strip()][-6:]
+    if recent:
+        turns = "\n".join(
+            f"{'User' if turn.role == 'user' else 'Assistant'}: {turn.content.strip()}"
+            for turn in recent
+        )
+        history_block = (
+            "Conversation so far (oldest to newest). Use it only to resolve "
+            "references like \"it\" or \"the second one\"; always ground the new "
+            f"answer in the evidence below:\n{turns}\n\n"
+        )
+
+    dossier_block = ""
+    if dossier_context.strip():
+        dossier_block = (
+            "Knowledge-graph context (aggregate counts across ALL stored coverage, "
+            "computed — use for over-time/standing claims like trends and "
+            "favourability; the numbered evidence below is your source for "
+            "specific facts and quotes):\n"
+            f"{dossier_context}\n\n"
+        )
+
     return f"""
 You are a confidential public media briefing assistant for Tamilaga Vettri Kazhagam.
 
-Question:
+{history_block}Question:
 {question}
 
-Stored newspaper evidence:
+{dossier_block}Stored newspaper evidence:
 {chr(10).join(evidence_blocks)}
 
 Rules:
-- Use only the stored evidence above. Do not add outside facts.
+- Use only the stored evidence and knowledge-graph context above. Do not add outside facts.
 - Cite evidence numbers like [1] whenever making a claim.
 - Explain positives, negatives, people issues, and TVK party actions only when supported by evidence.
 - Sensitive allegations must be framed as allegations and marked for human review.
@@ -448,10 +644,28 @@ Rules:
 """.strip()
 
 
+def build_retrieval_query(question: str, history: Sequence[ChatTurn] | None = None) -> str:
+    """Enrich a short follow-up ("what about water?") with the previous user
+    question so evidence retrieval still finds the relevant articles. Keyword
+    scoring just sees extra terms, so this only ever helps recall."""
+    if history:
+        for turn in reversed(history):
+            if turn.role == "user" and turn.content.strip():
+                return f"{turn.content.strip()} {question}".strip()
+    return question
+
+
 def _ollama_response_text(response: Any) -> str:
     if isinstance(response, dict):
         return str(response.get("response", "")).strip()
     return str(getattr(response, "response", "")).strip()
+
+
+def _ollama_chunk_text(chunk: Any) -> str:
+    # Streaming variant: must NOT strip — fragments carry inter-token spaces.
+    if isinstance(chunk, dict):
+        return str(chunk.get("response", ""))
+    return str(getattr(chunk, "response", ""))
 
 
 def _list_text(value: Any) -> list[str]:

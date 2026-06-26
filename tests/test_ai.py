@@ -427,3 +427,73 @@ class _FakeOutput:
 class _FakeContent:
     def __init__(self, refusal: str | None) -> None:
         self.refusal = refusal
+
+
+def test_tn_gate_rejects_international_story_with_substring_traps():
+    """'theni' in "strengthening" / 'salem' in "Jerusalem" must NOT pass the
+    Tamil Nadu gate — this exact bug put a Pakistan/US-Iran wire story on the
+    leadership dashboard as a TN people-issue."""
+    body = (
+        "Pakistan has accelerated efforts at strengthening ties with Iran. "
+        "Islamabad seeks to sustain the ceasefire and restart dialogue with "
+        "officials in Jerusalem and Tehran. The minister delivered a message "
+        "from the army chief to the Supreme Leader on Friday, officials said."
+    )
+    item = NormalizedItem(
+        source_type=SourceType.NEWS,
+        source_name="Wire",
+        source_url="https://example.com/intl",
+        language="en",
+        title="Pakistan tries to revive US-Iran talks",
+        raw_text_original=body,
+        clean_text_original=body,
+    )
+
+    analysis = MockAIAnalyzer().analyze(item)
+
+    assert analysis.government_relevance == GovernmentRelevance.NONE
+    assert analysis.tvk_relevance == GovernmentRelevance.NONE
+    assert analysis.people_issue is False
+
+    local = LocalTamilAnalyzer().analyze(item)
+    assert local.government_relevance == GovernmentRelevance.NONE
+
+
+def test_mock_analyzer_extracts_district_from_text():
+    body = (
+        "மதுரை மாவட்டத்தில் குடிநீர் தட்டுப்பாடு குறித்து பொதுமக்கள் புகார் தெரிவித்தனர். "
+        "தமிழக அரசு நடவடிக்கை எடுக்க வேண்டும் என்று கோரிக்கை வைத்தனர். "
+        "மாநகராட்சி நிர்வாகம் தண்ணீர் விநியோகத்தை சீரமைக்கவில்லை என்றனர். "
+        "வரும் வாரத்தில் போராட்டம் நடத்தப்படும் என அறிவிக்கப்பட்டுள்ளது."
+    )
+    item = NormalizedItem(
+        source_type=SourceType.NEWS,
+        source_name="Example",
+        source_url="https://example.com/madurai-water",
+        language="ta",
+        title="மதுரையில் குடிநீர் தட்டுப்பாடு",
+        raw_text_original=body,
+        clean_text_original=body,
+    )
+
+    analysis = MockAIAnalyzer().analyze(item)
+
+    assert analysis.district == "Madurai"
+
+
+def test_prompt_lens_is_per_tenant_subject():
+    """The classifier prompt is the only per-tenant variable: swap the subject
+    party and governing flag and the lens reframes — same engine, any party."""
+    item = _normalized_item()
+    # Default = TVK governing (unchanged behaviour).
+    tvk = build_classification_prompt(item)
+    assert "are NOT TVK" in tvk
+    assert "When TVK runs the government" in tvk
+
+    # An opposition tenant: positive flips to the subject's gain from govt failure.
+    dmk = build_classification_prompt(item, subject="DMK", leader="Stalin", governing=False)
+    assert "DMK party leadership office" in dmk
+    assert "are NOT DMK" in dmk
+    assert "in OPPOSITION" in dmk
+    assert "DMK can capitalise on" in dmk
+    assert "TVK" not in dmk  # no leakage of the default subject

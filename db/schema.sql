@@ -88,6 +88,105 @@ CREATE INDEX ix_review_decisions_analysis_id ON review_decisions (analysis_id);
 CREATE INDEX ix_review_decisions_reviewer_name ON review_decisions (reviewer_name);
 CREATE INDEX ix_review_decisions_status ON review_decisions (status);
 
+-- Bronze/Silver/Gold training labels — the spine of the learning flywheel.
+CREATE TABLE labeled_examples (
+    id BIGSERIAL PRIMARY KEY,
+    raw_item_id BIGINT NOT NULL REFERENCES raw_items(id) ON DELETE CASCADE,
+    analysis_id BIGINT REFERENCES ai_analysis(id) ON DELETE SET NULL,
+    field VARCHAR(64) NOT NULL,
+    value VARCHAR(64) NOT NULL,
+    tier VARCHAR(16) NOT NULL,
+    provenance VARCHAR(32) NOT NULL,
+    confidence DOUBLE PRECISION NOT NULL DEFAULT 0,
+    validator VARCHAR(128) NOT NULL DEFAULT '',
+    split_bucket INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_labeled_example_item_field_tier UNIQUE (raw_item_id, field, tier)
+);
+
+CREATE INDEX ix_labeled_examples_raw_item_id ON labeled_examples (raw_item_id);
+CREATE INDEX ix_labeled_examples_field ON labeled_examples (field);
+CREATE INDEX ix_labeled_examples_tier ON labeled_examples (tier);
+CREATE INDEX ix_labeled_examples_provenance ON labeled_examples (provenance);
+CREATE INDEX ix_labeled_examples_split_bucket ON labeled_examples (split_bucket);
+
+-- Model versions + the promotion gate (is_live flips only when a candidate
+-- beats the incumbent on the gold test set).
+CREATE TABLE model_registry (
+    id BIGSERIAL PRIMARY KEY,
+    model_name VARCHAR(128) NOT NULL,
+    version VARCHAR(64) NOT NULL,
+    kind VARCHAR(32) NOT NULL DEFAULT 'classifier',
+    metrics_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    primary_metric DOUBLE PRECISION NOT NULL DEFAULT 0,
+    eval_examples INTEGER NOT NULL DEFAULT 0,
+    is_live BOOLEAN NOT NULL DEFAULT false,
+    artifact_uri TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_model_registry_name_version UNIQUE (model_name, version)
+);
+
+CREATE INDEX ix_model_registry_model_name ON model_registry (model_name);
+CREATE INDEX ix_model_registry_is_live ON model_registry (is_live);
+
+-- Canonical political objects (people, parties, offices, districts, sources…)
+-- — the nodes of the knowledge vault. Free-text analysis surfaces resolve onto
+-- these via entity_aliases; unknown surfaces become status='candidate' rows.
+CREATE TABLE entities (
+    id BIGSERIAL PRIMARY KEY,
+    entity_type VARCHAR(32) NOT NULL,
+    slug VARCHAR(160) NOT NULL,
+    canonical_name VARCHAR(255) NOT NULL,
+    name_ta VARCHAR(255) NOT NULL DEFAULT '',
+    role VARCHAR(64) NOT NULL DEFAULT '',
+    party VARCHAR(64) NOT NULL DEFAULT '',
+    district VARCHAR(128) NOT NULL DEFAULT '',
+    portfolio VARCHAR(128) NOT NULL DEFAULT '',
+    is_tvk BOOLEAN NOT NULL DEFAULT false,
+    status VARCHAR(16) NOT NULL DEFAULT 'active',
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_entities_slug UNIQUE (slug)
+);
+
+CREATE INDEX ix_entities_entity_type ON entities (entity_type);
+CREATE INDEX ix_entities_status ON entities (status);
+
+CREATE TABLE entity_aliases (
+    id BIGSERIAL PRIMARY KEY,
+    entity_id BIGINT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    alias VARCHAR(255) NOT NULL,
+    normalized VARCHAR(255) NOT NULL,
+    lang VARCHAR(8) NOT NULL DEFAULT '',
+    CONSTRAINT uq_entity_alias UNIQUE (entity_id, alias)
+);
+
+CREATE INDEX ix_entity_aliases_entity_id ON entity_aliases (entity_id);
+CREATE INDEX ix_entity_aliases_normalized ON entity_aliases (normalized);
+
+-- One resolved mention: this item references this entity. surface keeps the
+-- original free text for audit; exactly one analysis's view per item (the
+-- dashboard's non-mock-then-latest winner).
+CREATE TABLE item_entities (
+    id BIGSERIAL PRIMARY KEY,
+    raw_item_id BIGINT NOT NULL REFERENCES raw_items(id) ON DELETE CASCADE,
+    analysis_id BIGINT REFERENCES ai_analysis(id) ON DELETE SET NULL,
+    entity_id BIGINT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    mention_field VARCHAR(32) NOT NULL,
+    surface VARCHAR(255) NOT NULL,
+    portrayal VARCHAR(32) NOT NULL DEFAULT '',
+    action_summary TEXT NOT NULL DEFAULT '',
+    resolver_version VARCHAR(32) NOT NULL,
+    confidence DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+    CONSTRAINT uq_item_entity UNIQUE (raw_item_id, entity_id, mention_field, surface)
+);
+
+CREATE INDEX ix_item_entities_raw_item_id ON item_entities (raw_item_id);
+CREATE INDEX ix_item_entities_analysis_id ON item_entities (analysis_id);
+CREATE INDEX ix_item_entities_entity_id ON item_entities (entity_id);
+CREATE INDEX ix_item_entities_mention_field ON item_entities (mention_field);
+
 CREATE TABLE source_checkpoints (
     id BIGSERIAL PRIMARY KEY,
     source_type VARCHAR(64) NOT NULL,

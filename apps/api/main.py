@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import logging
 import os
 import shutil
 import subprocess
@@ -7,11 +9,12 @@ import tempfile
 import threading
 import traceback
 from datetime import date, datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -19,20 +22,39 @@ from sqlalchemy import select
 
 from tnmi import __version__
 from tnmi.ai import MockAIAnalyzer, OpenAIAnalyzer
-from tnmi.chat import ChatAIProvider, OllamaChatProvider, answer_question
+from tnmi.chat import (
+    ChatAIProvider,
+    ChatTurn,
+    EvidenceOnlyChatProvider,
+    OllamaChatProvider,
+    _INSUFFICIENT_ANSWER,
+    answer_question,
+    build_dossier_context,
+    build_retrieval_query,
+    retrieve_chat_evidence,
+)
 from tnmi.local_models import LocalTamilAnalyzer
 from tnmi.config import Settings, load_newspaper_sources, load_x_handle_sources
 from tnmi.contracts import ReviewDecisionCreate
 from tnmi.dashboard import (
+    compose_brief,
     get_dashboard_summary,
     get_dashboard_trends,
     invalidate_briefing_cache,
     list_latest_items,
     list_recurring_themes,
     list_review_queue,
+    select_priority_alerts,
+    summarize_briefing_categories,
 )
+from tnmi.districts import summarize_by_department, summarize_by_district
+from tnmi.entity_api import actor_scorecards, entity_dossier, list_entities
+from tnmi.flywheel import model_health
+from tnmi.mla import mlas_by_district, party_seat_counts, roster_label
+from tnmi.signals import detect_spikes
+from tnmi.tenancy import ControlPlane
+from tnmi.tn_map import TN_MAP_LABELS, TN_MAP_PATHS, TN_MAP_VIEWBOX
 from tnmi.pipeline import DailyNewsPipeline, RequestsNewsClient
-from tnmi.quality import audit_analysis_quality
 from tnmi.storage import (
     AIAnalysisRecord,
     RawItemRecord,
@@ -44,6 +66,7 @@ from tnmi.storage import (
 )
 
 app = FastAPI(title="Tamil Nadu Media Intelligence API", version=__version__)
+logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -68,6 +91,29 @@ def require_operator(x_tnmi_operator_token: str | None = Header(default=None)) -
     token = Settings().operator_api_token
     if token and x_tnmi_operator_token != token:
         raise HTTPException(status_code=401, detail="Operator token required")
+
+
+@lru_cache(maxsize=1)
+def _control_plane() -> ControlPlane:
+    s = Settings()
+    return ControlPlane(s.control_database_url, tenants_dir=s.tenants_dir)
+
+
+@lru_cache(maxsize=16)
+def _cached_factory(database_url: str):
+    return create_session_factory(database_url)
+
+
+def get_session_factory(x_tenant_key: str | None = Header(default=None)):
+    """Per-request DB picker. Single-tenant (default): the configured database.
+    Multi-tenant: resolve the X-Tenant-Key to its isolated tenant database."""
+    settings = Settings()
+    if not getattr(settings, "multi_tenant", False):
+        return _cached_factory(settings.database_url)
+    tenant = _control_plane().authenticate_api_key(x_tenant_key or "")
+    if tenant is None:
+        raise HTTPException(status_code=401, detail="Valid X-Tenant-Key required")
+    return _control_plane().session_factory_for(tenant)
 
 
 def _review_decision_payload(record: ReviewDecisionRecord) -> dict[str, object]:
@@ -199,9 +245,8 @@ def x_sources() -> list[dict[str, object]]:
 
 
 @app.get("/items")
-def items(limit: int = 50) -> list[dict[str, object]]:
+def items(limit: int = 50, session_factory=Depends(get_session_factory)) -> list[dict[str, object]]:
     settings = Settings()
-    session_factory = create_session_factory(settings.database_url)
     bounded_limit = max(1, min(limit, 200))
     with session_factory() as session:
         records = session.scalars(
@@ -221,9 +266,8 @@ def items(limit: int = 50) -> list[dict[str, object]]:
 
 
 @app.get("/analyses")
-def analyses(limit: int = 50) -> list[dict[str, object]]:
+def analyses(limit: int = 50, session_factory=Depends(get_session_factory)) -> list[dict[str, object]]:
     settings = Settings()
-    session_factory = create_session_factory(settings.database_url)
     bounded_limit = max(1, min(limit, 200))
     with session_factory() as session:
         records = session.scalars(
@@ -261,6 +305,12 @@ _NO_CACHE_HEADERS = {
 class ChatAskRequest(BaseModel):
     question: str = Field(min_length=3, max_length=1000)
     limit: int = Field(default=5, ge=1, le=8)
+
+
+class ChatStreamRequest(BaseModel):
+    question: str = Field(min_length=3, max_length=1000)
+    limit: int = Field(default=6, ge=1, le=8)
+    history: list[ChatTurn] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -458,15 +508,39 @@ def _run_ingest_job(trigger: str) -> None:
 
 
 @app.get("/dashboard", response_class=HTMLResponse, dependencies=[Depends(require_operator)])
-def dashboard_page(request: Request, print: int = 0) -> HTMLResponse:
+def dashboard_page(request: Request, print: int = 0, session_factory=Depends(get_session_factory)) -> HTMLResponse:
     settings = Settings()
-    session_factory = create_session_factory(settings.database_url)
     with session_factory() as session:
         summary = get_dashboard_summary(session)
         queue = list_review_queue(session, limit=50)
-        # Render every article so the KPI/filter counts above (which are
-        # computed across the full DB) match the cards filtered client-side.
-        latest_items = list_latest_items(session, limit=200)
+        # Render every relevant story so the KPI/filter counts derive from the
+        # exact cards on screen. The cap stays above the relevant-story count so
+        # nothing is silently dropped; pagination (client-side) keeps the page
+        # short regardless of how many cards are present.
+        latest_items = list_latest_items(session, limit=1500)
+        # Headline deck numbers come straight from the cards — single source of
+        # truth, so "All Coverage" always equals its own category breakdown.
+        summary.update(summarize_briefing_categories(latest_items))
+        priority_alerts = select_priority_alerts(latest_items, limit=5)
+        district_summary = summarize_by_district(latest_items)
+        department_summary = summarize_by_department(latest_items)
+        emerging_signals = detect_spikes(session, limit=6)
+        model_status = model_health(session)
+        daily_brief = compose_brief(
+            summary=summary,
+            emerging_signals=emerging_signals,
+            priority_alerts=priority_alerts,
+            district_summary=district_summary,
+            actors=actor_scorecards(session, limit=8),
+        )
+        # Attach real boundary geometry so the template renders a true TN map,
+        # and the constituency/MLA roster for the district drill-down panel.
+        district_mlas = mlas_by_district()
+        for tile in district_summary["tiles"]:
+            tile["path"] = TN_MAP_PATHS.get(tile["district"], "")
+            label = TN_MAP_LABELS.get(tile["district"])
+            tile["label_x"], tile["label_y"] = (label if label else (0.0, 0.0))
+            tile["mlas"] = district_mlas.get(tile["district"], [])
         # GDELT cross-reference is opt-in — it adds 6-12 seconds to page load
         # when GDELT throttles or times out. Operators who want it can enable
         # via TNMI_ENABLE_GLOBAL_CROSSREF=1.
@@ -476,7 +550,6 @@ def dashboard_page(request: Request, print: int = 0) -> HTMLResponse:
             cross_reference_global=bool(int(os.environ.get("TNMI_ENABLE_GLOBAL_CROSSREF", "0"))),
         )
         trends = get_dashboard_trends(session, days=14)
-        quality_issues = audit_analysis_quality(session, limit=25)
     settings_status = _settings_status(settings)
     report_files = _list_report_files(Path(settings.report_output_dir))
     return templates.TemplateResponse(
@@ -486,9 +559,17 @@ def dashboard_page(request: Request, print: int = 0) -> HTMLResponse:
             "summary": summary,
             "queue": queue,
             "latest_items": latest_items,
+            "priority_alerts": priority_alerts,
+            "emerging_signals": emerging_signals,
+            "model_status": model_status,
+            "daily_brief": daily_brief,
+            "district_summary": district_summary,
+            "department_summary": department_summary,
+            "tn_map_viewbox": TN_MAP_VIEWBOX,
+            "party_seats": party_seat_counts(),
+            "assembly_label": roster_label(),
             "themes": themes,
             "trends": trends,
-            "quality_issues": quality_issues,
             **_briefing_groups(latest_items),
             "settings_status": settings_status,
             "audit_events": _dashboard_audit_events(
@@ -649,15 +730,73 @@ def settings_status() -> dict[str, object]:
 
 
 @app.get("/dashboard/summary", dependencies=[Depends(require_operator)])
-def dashboard_summary() -> dict[str, object]:
+def dashboard_summary(session_factory=Depends(get_session_factory)) -> dict[str, object]:
     settings = Settings()
-    session_factory = create_session_factory(settings.database_url)
     with session_factory() as session:
         return get_dashboard_summary(session)
 
 
+@app.get("/dashboard/alerts", dependencies=[Depends(require_operator)])
+def dashboard_alerts(limit: int = 5, session_factory=Depends(get_session_factory)) -> dict[str, object]:
+    """Live monitor feed: forward-looking ``emerging_signals`` (entity surges and
+    threats) plus the urgent ``priority`` backlog (high/critical negatives and
+    people issues awaiting review). Pollable so an external monitor can surface
+    them live."""
+    bounded_limit = max(1, min(limit, 20))
+    settings = Settings()
+    with session_factory() as session:
+        latest_items = list_latest_items(session, limit=200)
+        spikes = detect_spikes(session, limit=bounded_limit)
+    priority = select_priority_alerts(latest_items, limit=bounded_limit)
+    # Emerging signals (forward-looking) lead, then the urgent backlog.
+    return {"emerging_signals": spikes, "priority": priority}
+
+
+@app.get("/api/entities", dependencies=[Depends(require_operator)])
+def api_entities(entity_type: str | None = None, limit: int = 200, session_factory=Depends(get_session_factory)) -> list[dict[str, object]]:
+    """The political knowledge graph as JSON — every canonical actor, party,
+    district, department and source, ranked by coverage volume with its
+    portrayal split. Powers the war-room's clickable entity chips."""
+    bounded_limit = max(1, min(limit, 500))
+    settings = Settings()
+    with session_factory() as session:
+        return list_entities(session, entity_type=entity_type, limit=bounded_limit)
+
+
+@app.get("/api/entities/{slug}", dependencies=[Depends(require_operator)])
+def api_entity_dossier(slug: str, session_factory=Depends(get_session_factory)) -> dict[str, object]:
+    """One entity's full dossier: all-time + 30-day portrayal, weekly trend,
+    co-mention network, top districts/categories, and cited evidence."""
+    settings = Settings()
+    with session_factory() as session:
+        dossier = entity_dossier(session, slug)
+    if dossier is None:
+        raise HTTPException(status_code=404, detail=f"No entity with slug {slug!r}")
+    return dossier
+
+
+@app.get("/dashboard/models", dependencies=[Depends(require_operator)])
+def dashboard_models(session_factory=Depends(get_session_factory)) -> dict[str, object]:
+    """Learning-loop health: label tallies (gold/silver/bronze), the live model
+    and its gold-test metric, and the latest registered candidate."""
+    settings = Settings()
+    with session_factory() as session:
+        return model_health(session)
+
+
+@app.get("/api/actors", dependencies=[Depends(require_operator)])
+def api_actors(limit: int = 12, session_factory=Depends(get_session_factory)) -> list[dict[str, object]]:
+    """Ranked persona scorecards — per-figure reputation (portrayal split,
+    favorability, weekly trend, momentum) for the 'who is winning the
+    narrative' Key Figures view."""
+    bounded_limit = max(1, min(limit, 60))
+    settings = Settings()
+    with session_factory() as session:
+        return actor_scorecards(session, limit=bounded_limit)
+
+
 @app.post("/chat/ask", dependencies=[Depends(require_operator)])
-def ask_chat(request: ChatAskRequest) -> dict[str, object]:
+def ask_chat(request: ChatAskRequest, session_factory=Depends(get_session_factory)) -> dict[str, object]:
     settings = Settings()
     provider: ChatAIProvider | None = None
     try:
@@ -665,7 +804,6 @@ def ask_chat(request: ChatAskRequest) -> dict[str, object]:
     except Exception:
         traceback.print_exc()
 
-    session_factory = create_session_factory(settings.database_url)
     with session_factory() as session:
         answer = answer_question(
             session,
@@ -676,18 +814,108 @@ def ask_chat(request: ChatAskRequest) -> dict[str, object]:
     return answer.model_dump(mode="json")
 
 
-@app.get("/review/queue", dependencies=[Depends(require_operator)])
-def review_queue(limit: int = 50) -> list[dict[str, object]]:
+@app.post("/chat/stream", dependencies=[Depends(require_operator)])
+def stream_chat(request: ChatStreamRequest, session_factory=Depends(get_session_factory)) -> StreamingResponse:
+    """Streaming sibling of /chat/ask.
+
+    Emits newline-delimited JSON events so the dashboard can render a live,
+    typing-style answer instead of a multi-second blank wait:
+
+        {"type": "evidence", "evidence": [...]}     # sources, sent first
+        {"type": "delta",    "text": "..."}          # answer fragments
+        {"type": "done",     "used_ai": true, "model_name": "ollama/gemma2:2b"}
+
+    Evidence is retrieved up front (fast, DB-bound) and the session is closed
+    before the slow LLM stream begins. If the local AI is unreachable we fall
+    back to the same deterministic evidence-only answer as /chat/ask.
+    """
     settings = Settings()
-    session_factory = create_session_factory(settings.database_url)
+    provider: ChatAIProvider | None = None
+    try:
+        provider = _build_chat_provider(settings)
+    except Exception:
+        traceback.print_exc()
+
+    history = request.history[-8:]
+    retrieval_query = build_retrieval_query(request.question, history)
+    with session_factory() as session:
+        evidence = retrieve_chat_evidence(session, retrieval_query, limit=request.limit)
+        # Aggregate knowledge-graph context for any entity named in the question —
+        # computed before the session closes and the slow LLM stream begins.
+        dossier_context = build_dossier_context(session, request.question)
+
+    def emit(event: dict[str, object]) -> str:
+        return json.dumps(event, ensure_ascii=False) + "\n"
+
+    def generate():
+        yield emit(
+            {
+                "type": "evidence",
+                "evidence": [item.model_dump(mode="json") for item in evidence],
+            }
+        )
+
+        if not evidence:
+            yield emit({"type": "delta", "text": _INSUFFICIENT_ANSWER})
+            yield emit({"type": "done", "used_ai": False, "model_name": "evidence-only"})
+            return
+
+        produced = False
+        if provider is not None and hasattr(provider, "stream_answer"):
+            try:
+                for fragment in provider.stream_answer(
+                    request.question, evidence, history=history, dossier_context=dossier_context
+                ):
+                    if fragment:
+                        produced = True
+                        yield emit({"type": "delta", "text": fragment})
+            except Exception as exc:  # noqa: BLE001 - provider fallback boundary
+                logger.warning(
+                    "Chat stream provider failed; %s",
+                    "mid-stream" if produced else "using evidence-only fallback",
+                )
+                if produced:
+                    yield emit(
+                        {
+                            "type": "delta",
+                            "text": "\n\n_(The local AI connection was interrupted.)_",
+                        }
+                    )
+                    yield emit(
+                        {"type": "done", "used_ai": True, "model_name": provider.model_name}
+                    )
+                    return
+
+        if produced:
+            yield emit({"type": "done", "used_ai": True, "model_name": provider.model_name})
+            return
+
+        fallback = EvidenceOnlyChatProvider()
+        yield emit(
+            {
+                "type": "delta",
+                "text": fallback.answer(request.question, evidence, dossier_context=dossier_context),
+            }
+        )
+        yield emit({"type": "done", "used_ai": False, "model_name": fallback.model_name})
+
+    return StreamingResponse(
+        generate(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/review/queue", dependencies=[Depends(require_operator)])
+def review_queue(limit: int = 50, session_factory=Depends(get_session_factory)) -> list[dict[str, object]]:
+    settings = Settings()
     with session_factory() as session:
         return list_review_queue(session, limit=limit)
 
 
 @app.post("/review/decisions", dependencies=[Depends(require_operator)])
-def create_review_decision(decision: ReviewDecisionCreate) -> dict[str, object]:
+def create_review_decision(decision: ReviewDecisionCreate, session_factory=Depends(get_session_factory)) -> dict[str, object]:
     settings = Settings()
-    session_factory = create_session_factory(settings.database_url)
     with session_factory() as session:
         record = save_review_decision(session, decision)
         session.commit()
@@ -699,9 +927,8 @@ def create_review_decision(decision: ReviewDecisionCreate) -> dict[str, object]:
 
 
 @app.get("/review/decisions/{analysis_id}", dependencies=[Depends(require_operator)])
-def latest_review_decision(analysis_id: int) -> dict[str, object]:
+def latest_review_decision(analysis_id: int, session_factory=Depends(get_session_factory)) -> dict[str, object]:
     settings = Settings()
-    session_factory = create_session_factory(settings.database_url)
     with session_factory() as session:
         record = get_latest_review_decision(session, analysis_id)
         if record is None:

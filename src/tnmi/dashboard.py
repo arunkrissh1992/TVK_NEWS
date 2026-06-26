@@ -17,6 +17,9 @@ from tnmi.clusters import (
     cluster_all_articles_for_briefing,
     find_recurring_themes,
 )
+from tnmi.districts import canonical_department, canonical_district
+from tnmi.mla import mlas_by_district
+from tnmi.responsibility import resolve_responsibility
 from tnmi.gdelt import (
     GdeltCrossReference,
     build_query_for_theme,
@@ -300,12 +303,16 @@ def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, An
     from the cluster's "representative" article — the highest-relevance
     member, preferring those flagged for human review and longer titles.
     """
-    bounded_limit = max(1, min(limit, 500))
+    # Upper bound is generous: every relevant story should be reachable via
+    # pagination rather than silently truncated. The page stays short because
+    # the grid is paginated client-side, not because we drop cards here.
+    bounded_limit = max(1, min(limit, 1500))
     cached = _briefing_cache_get(bounded_limit)
     if cached is not None:
         return cached
     clusters = cluster_all_articles_for_briefing(session)
     overrides = _load_operator_stance_overrides(session)
+    district_mlas = mlas_by_district()  # cached; used to name who acts per card
 
     payloads: list[dict[str, Any]] = []
     for cluster in clusters:
@@ -347,8 +354,7 @@ def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, An
             people_issue=people_issue,
         )
 
-        payloads.append(
-            {
+        card = {
                 "raw_item_id": rep.raw_item_id,
                 "analysis_id": rep.analysis_id,
                 "source_name": rep.source_name,
@@ -374,7 +380,9 @@ def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, An
                 "action_type": rep.action_type,
                 "action_priority": rep.action_priority,
                 "department": rep.department,
+                "department_canonical": canonical_department(rep.department) or "",
                 "district": rep.district,
+                "district_canonical": canonical_district(rep.district) or "",
                 "summary_original": rep.summary_original,
                 "summary_english": rep.summary_english,
                 "summary": rep.summary_english or rep.summary_original,
@@ -395,6 +403,10 @@ def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, An
                 "confidence": None,
                 "needs_human_review": any(m.needs_human_review for m in cluster.members),
                 "model_name": rep.model_name or None,
+                # Heuristic = produced by the keyword fallback (not a semantic LLM).
+                # The card labels its action playbook so operators never mistake
+                # rule-based boilerplate for genuine per-article analysis.
+                "is_heuristic": _is_fallback_model(rep.model_name),
                 "prompt_version": rep.prompt_version or None,
                 # Cluster metadata for the new multi-source UI.
                 "cluster_size": cluster.size,
@@ -406,12 +418,181 @@ def list_latest_items(session: Session, *, limit: int = 25) -> list[dict[str, An
                 # from one paper shouldn't claim cross-source coverage.
                 "is_consolidated": cluster.distinct_source_count > 1,
                 "is_operator_corrected": bool(operator_corrected),
-            }
-        )
+        }
+        # Who in government should act on this — department + district + CM escalation.
+        card["responsibility"] = resolve_responsibility(card, district_mlas)
+        payloads.append(card)
         if len(payloads) >= bounded_limit:
             break
     _briefing_cache_set(payloads, bounded_limit)
     return payloads
+
+
+_PRIORITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+
+
+def select_priority_alerts(
+    items: list[dict[str, Any]], *, limit: int = 5
+) -> list[dict[str, Any]]:
+    """Pick the items the leadership office must act on first.
+
+    The dashboard is a monitor: among the narrative cards, the few that are
+    high/critical-priority problems (negative for TVK, or a serious people
+    issue) — or anything still awaiting human review — surface to the top as
+    alerts. Positive and neutral coverage never raises an alert.
+    """
+    scored: list[tuple[tuple[int, int, float], dict[str, Any]]] = []
+    for item in items:
+        category = item.get("display_category")
+        if category not in {"negative", "people"}:
+            continue
+        priority = (item.get("action_priority") or item.get("severity") or "").lower()
+        priority_rank = _PRIORITY_RANK.get(priority, 0)
+        needs_review = bool(item.get("needs_human_review"))
+        # Only urgent problems become alerts: high/critical priority, or an
+        # item still flagged for human review. Low-priority chatter stays in
+        # the main feed.
+        if priority_rank < 3 and not needs_review:
+            continue
+        when = item.get("published_at") or item.get("ingested_at")
+        recency = _utc_sort_key(when).timestamp() if isinstance(when, datetime) else 0.0
+        urgency = priority_rank + (1 if needs_review else 0)
+        scored.append(((urgency, priority_rank, recency), item))
+
+    scored.sort(key=lambda entry: entry[0], reverse=True)
+
+    alerts: list[dict[str, Any]] = []
+    for _key, item in scored[: max(0, limit)]:
+        alerts.append(
+            {
+                "raw_item_id": item.get("raw_item_id"),
+                "analysis_id": item.get("analysis_id"),
+                "title": item.get("title"),
+                "source_name": item.get("source_name"),
+                "source_count": item.get("source_count", 1),
+                "display_category": item.get("display_category"),
+                "stance_label": item.get("stance_label"),
+                "portrayal_kind": item.get("portrayal_kind"),
+                "action_priority": item.get("action_priority") or item.get("severity"),
+                "needs_human_review": bool(item.get("needs_human_review")),
+                "public_issue": item.get("public_issue") or "",
+                "summary": item.get("summary") or "",
+                "risk_if_ignored": item.get("risk_if_ignored") or "",
+                "recommended_step": item.get("recommended_step") or "",
+                "published_at": item.get("published_at"),
+            }
+        )
+    return alerts
+
+
+def summarize_briefing_categories(latest_items: list[dict[str, Any]]) -> dict[str, int]:
+    """Filter-deck counts derived directly from the briefing cards.
+
+    The KPI deck is a *filter* over the cards, so each tile must equal the
+    number of cards its filter reveals. Every card carries exactly one
+    ``display_category`` in {positive, negative, mixed, neutral, people}, so the
+    five buckets sum to the total number of cards. Deriving the headline numbers
+    here — from the very list the operator sees — makes them impossible to drift
+    from the grid (the old deck mixed an ungated raw-item total with per-item
+    portrayal sub-counts, so "All Coverage" never matched its own breakdown).
+    """
+    counts = Counter((item.get("display_category") or "neutral") for item in latest_items)
+    return {
+        "briefing_total": len(latest_items),
+        "positive_count": counts.get("positive", 0),
+        "negative_count": counts.get("negative", 0),
+        "mixed_count": counts.get("mixed", 0),
+        "neutral_count": counts.get("neutral", 0),
+        "people_issue_count": counts.get("people", 0),
+    }
+
+
+def compose_brief(
+    *,
+    summary: dict[str, Any],
+    emerging_signals: list[dict[str, Any]],
+    priority_alerts: list[dict[str, Any]],
+    district_summary: dict[str, Any],
+    actors: list[dict[str, Any]],
+    subject: str = "TVK",
+) -> list[dict[str, Any]]:
+    """The "so what" — rank the few things a leader must know today out of
+    signals already computed elsewhere. Pure + deterministic: no LLM, no new
+    queries, just synthesis of the dashboard's own numbers into a decision."""
+    lines: list[dict[str, Any]] = []
+
+    pos = summary.get("positive_count", 0)
+    neg = summary.get("negative_count", 0)
+    if pos + neg:
+        fav = round(50 + 50 * (pos - neg) / (pos + neg))
+        tone = "good" if fav >= 55 else "bad" if fav <= 45 else "watch"
+        lines.append(
+            {
+                "kind": "standing",
+                "tone": tone,
+                "title": f"{subject} standing: {fav}/100 favourability",
+                "detail": f"{pos} positive vs {neg} negative across current coverage",
+            }
+        )
+
+    threats = [s for s in emerging_signals if s.get("is_threat")]
+    pick = (threats or emerging_signals)[:1]
+    if pick:
+        s = pick[0]
+        lines.append(
+            {
+                "kind": "signal",
+                "tone": "bad" if s.get("is_threat") else "watch",
+                "title": f"{s['label']}: {s['name']}",
+                "detail": f"{s['recent_mentions']} stories in 3 days, {s['z_score']}σ above its baseline",
+                "slug": s.get("slug"),
+            }
+        )
+
+    if priority_alerts:
+        a = priority_alerts[0]
+        lines.append(
+            {
+                "kind": "alert",
+                "tone": "bad",
+                "title": "Act now: " + (a.get("title") or a.get("summary") or "")[:90],
+                "detail": a.get("risk_if_ignored") or a.get("recommended_step") or "",
+            }
+        )
+
+    tiles = [t for t in district_summary.get("tiles", []) if t.get("total")]
+    if tiles:
+        hot = max(tiles, key=lambda t: t.get("negative", 0) + t.get("people", 0))
+        concerns = hot.get("negative", 0) + hot.get("people", 0)
+        if concerns:
+            top_issue = hot["top_issues"][0]["issue"] if hot.get("top_issues") else ""
+            lines.append(
+                {
+                    "kind": "hotspot",
+                    "tone": "watch",
+                    "title": f"Hotspot: {hot['district']}",
+                    "detail": f"{concerns} negative/people-issue stories"
+                    + (f" · top: {top_issue}" if top_issue else ""),
+                }
+            )
+
+    rivals = [a for a in actors if not a.get("is_tvk")]
+    if rivals:
+        r = rivals[0]
+        mom = r.get("momentum")
+        arrow = "↑" if (mom or 0) > 0 else "↓" if (mom or 0) < 0 else "→"
+        lines.append(
+            {
+                "kind": "rival",
+                "tone": "watch",
+                "title": f"Rival watch: {r['name']} ({r.get('party', '')})",
+                "detail": f"favourability {r.get('favorability')}/100 {arrow}"
+                + (str(abs(mom)) if mom else ""),
+                "slug": r.get("slug"),
+            }
+        )
+
+    return lines
 
 
 def invalidate_briefing_cache() -> None:
@@ -563,6 +744,7 @@ def get_dashboard_trends(session: Session, *, days: int = 14) -> dict[str, Any]:
             AIAnalysisRecord.stance_toward_government,
             AIAnalysisRecord.department,
             AIAnalysisRecord.district,
+            AIAnalysisRecord.government_relevance,
             AIAnalysisRecord.model_name,
             AIAnalysisRecord.created_at,
             RawItemRecord.published_at,
@@ -573,11 +755,12 @@ def get_dashboard_trends(session: Session, *, days: int = 14) -> dict[str, Any]:
     ).all()
 
     dedup: dict[int, dict[str, Any]] = {}
-    for raw_id, stance, department, district, model, created_at, published_at, ingested_at in rows:
+    for raw_id, stance, department, district, relevance, model, created_at, published_at, ingested_at in rows:
         candidate = {
             "stance": stance,
             "department": (department or "unspecified").strip() or "unspecified",
             "district": (district or "unspecified").strip() or "unspecified",
+            "relevance": (relevance or "").strip().lower(),
             "model": model,
             "created_at": created_at,
             "published_at": published_at,
@@ -597,7 +780,9 @@ def get_dashboard_trends(session: Session, *, days: int = 14) -> dict[str, Any]:
             ):
                 dedup[raw_id] = candidate
 
-    items = list(dedup.values())
+    # Only the briefing-relevant stories count, same gate as the cards/KPIs, so
+    # the district/department breakdowns don't drown in off-topic "Unclassified".
+    items = [item for item in dedup.values() if item["relevance"] != "none"]
 
     return {
         "stance_timeseries": _stance_timeseries(items, days=days),

@@ -27,6 +27,15 @@ class Settings(BaseSettings):
     # the cloud-GPU path: 20× faster, larger/better model.
     ollama_host: str = "http://localhost:11434"
     ollama_model: str = "gemma2:2b"
+    # Knowledge vault — Obsidian-compatible markdown layer derived from the DB.
+    vault_dir: Path = Path("vault")
+    entities_seed_config: Path = Path("configs/entities.seed.yaml")
+    # Multi-tenant SaaS control plane. The control DB holds tenants, users and
+    # API keys; each tenant gets its OWN isolated database (silo model) under
+    # tenants_dir. Single-tenant deployments ignore these and use database_url.
+    control_database_url: str = "sqlite:///./control.db"
+    tenants_dir: Path = Path("tenants")
+    multi_tenant: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",

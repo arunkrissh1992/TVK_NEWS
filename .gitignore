@@ -9,7 +9,15 @@ object-store/
 *.pyc
 .worktrees/
 *.db
+*.db-shm
+*.db-wal
+*.db.bak*
 *.sqlite
 *.sqlite3
 *.egg-info/
 dashboard-demo-final.png
+# SaaS + local artifacts (regenerable / per-machine)
+tenants/
+artifacts/
+vault/
+.claude/

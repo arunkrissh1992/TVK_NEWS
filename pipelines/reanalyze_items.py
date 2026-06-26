@@ -28,7 +28,7 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import sessionmaker
 
 from tnmi.ai import AIAnalyzer, MockAIAnalyzer, OpenAIAnalyzer, PROMPT_VERSION
@@ -94,7 +94,12 @@ def _to_normalized_item(record: RawItemRecord) -> NormalizedItem:
 
 
 def _candidate_items(
-    session_factory: sessionmaker, *, only_mock: bool, limit: int | None
+    session_factory: sessionmaker,
+    *,
+    only_mock: bool,
+    only_high_value: bool,
+    current_version: str,
+    limit: int | None,
 ) -> list[RawItemRecord]:
     with session_factory() as session:
         query = select(RawItemRecord).order_by(RawItemRecord.ingested_at.desc(), RawItemRecord.id.desc())
@@ -105,6 +110,25 @@ def _candidate_items(
                 .distinct()
             )
             query = query.where(RawItemRecord.id.in_(mock_subquery))
+        if only_high_value:
+            # Items the leadership office acts on — the ones whose action text is
+            # worth an LLM upgrade: people issues, anything flagged for review,
+            # negative coverage, or stories that mention TVK. Judged against the
+            # current prompt version so we target the live classification.
+            high_value = (
+                select(AIAnalysisRecord.raw_item_id)
+                .where(
+                    AIAnalysisRecord.prompt_version == current_version,
+                    or_(
+                        AIAnalysisRecord.people_issue.is_(True),
+                        AIAnalysisRecord.needs_human_review.is_(True),
+                        AIAnalysisRecord.stance_toward_government == "negative",
+                        AIAnalysisRecord.tvk_portrayal.in_(("positive", "negative", "mixed")),
+                    ),
+                )
+                .distinct()
+            )
+            query = query.where(RawItemRecord.id.in_(high_value))
         if limit is not None:
             query = query.limit(limit)
         return list(session.scalars(query))
@@ -130,6 +154,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="Only re-analyse items that currently have a mock analysis",
     )
     parser.add_argument(
+        "--high-value",
+        action="store_true",
+        help="Only re-analyse leadership-relevant items (people issues, review-flagged, "
+        "negative coverage, or TVK-referenced) — ideal for a targeted Gemma upgrade.",
+    )
+    parser.add_argument(
         "--prompt-version",
         default=PROMPT_VERSION,
         help="Prompt version tag for the new analyses (default: %(default)s)",
@@ -150,7 +180,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     session_factory = create_session_factory(settings.database_url)
     init_db(session_factory)
 
-    items = _candidate_items(session_factory, only_mock=args.only_mock, limit=args.limit)
+    items = _candidate_items(
+        session_factory,
+        only_mock=args.only_mock,
+        only_high_value=args.high_value,
+        current_version=args.prompt_version,
+        limit=args.limit,
+    )
     if not items:
         print("no items found; nothing to do")
         return

@@ -70,7 +70,10 @@
       <nav class="nav-strip" aria-label="Briefing sections">
         <div class="shell nav-list">
           <a href="#overview" class="nav-link" data-nav-target="overview"><i class="fa-light fa-gauge-high" aria-hidden="true"></i><span class="nav-label">Overview</span></a>
-          <a href="#ask-ai" class="nav-link" data-nav-target="ask-ai"><i class="fa-light fa-messages-question" aria-hidden="true"></i><span class="nav-label">Ask AI</span></a>
+          {% if priority_alerts %}<a href="#priority-alerts" class="nav-link" data-nav-target="priority-alerts"><i class="fa-light fa-siren-on" aria-hidden="true"></i><span class="nav-label">Alerts</span></a>{% endif %}
+          <button type="button" class="nav-link nav-link--ai" id="nav-ask-ai"><i class="fa-light fa-messages-question" aria-hidden="true"></i><span class="nav-label">Ask AI</span></button>
+          <a href="#districts" class="nav-link" data-nav-target="districts"><i class="fa-light fa-map-location-dot" aria-hidden="true"></i><span class="nav-label">Districts</span></a>
+          <a href="#key-figures" class="nav-link" data-nav-target="key-figures"><i class="fa-light fa-user-tie" aria-hidden="true"></i><span class="nav-label">Key Figures</span></a>
           <a href="#narratives" class="nav-link" data-nav-target="narratives"><i class="fa-light fa-newspaper" aria-hidden="true"></i><span class="nav-label">Narratives</span></a>
           <a href="#people" class="nav-link" data-nav-target="people"><i class="fa-light fa-people-group" aria-hidden="true"></i><span class="nav-label">People Issues</span></a>
           <a href="#trends" class="nav-link" data-nav-target="trends"><i class="fa-light fa-chart-line" aria-hidden="true"></i><span class="nav-label">Trends</span></a>
@@ -80,6 +83,23 @@
     </header>
 
     <main class="shell main-shell">
+
+      {% if daily_brief %}
+        <section class="daily-brief" aria-label="Today's intelligence brief">
+          <header class="daily-brief-head">
+            <span class="daily-brief-kicker"><i class="fa-light fa-brain-circuit" aria-hidden="true"></i>&nbsp;Today's Intelligence Brief</span>
+            <span class="daily-brief-date">{{ summary.latest_ingested_at.strftime('%d %b %Y') if summary.latest_ingested_at else '' }}</span>
+          </header>
+          <ul class="daily-brief-list">
+            {% for line in daily_brief %}
+              <li class="daily-brief-line tone-{{ line.tone }}{% if line.slug %} is-clickable{% endif %}"{% if line.slug %} data-entity-slug="{{ line.slug }}" role="button" tabindex="0"{% endif %}>
+                <span class="daily-brief-dot" aria-hidden="true"></span>
+                <span class="daily-brief-text"><b>{{ line.title }}</b>{% if line.detail %} — {{ line.detail }}{% endif %}</span>
+              </li>
+            {% endfor %}
+          </ul>
+        </section>
+      {% endif %}
 
       {% if summary.semantic_analyses == 0 and summary.fallback_analyses > 0 %}
         <section class="ai-quality-banner" aria-label="AI quality notice">
@@ -95,61 +115,7 @@
         </section>
       {% endif %}
 
-      {% if quality_issues %}
-        <section class="ai-quality-banner ai-quality-banner--audit" aria-label="Analysis quality warnings">
-          <i class="fa-light fa-shield-exclamation" aria-hidden="true"></i>
-          <div class="ai-quality-banner-body">
-            <strong>Analysis quality warnings found.</strong>
-            <span>
-              {{ quality_issues|length }} latest analysis record{{ '' if quality_issues|length == 1 else 's' }}
-              need review or reanalysis. The audit checks serious people issues, TVK relevance, and generic next steps.
-            </span>
-            <ul class="quality-issue-list">
-              {% for issue in quality_issues[:3] %}
-                <li>
-                  <b>{{ issue.issue_code.replace('_', ' ') }}</b>
-                  &middot; {{ issue.source_name }}
-                  &middot; {{ issue.title }}
-                </li>
-              {% endfor %}
-            </ul>
-          </div>
-        </section>
-      {% endif %}
 
-      <section id="ask-ai" class="chat-panel" aria-label="Ask the briefing data">
-        <div class="chat-layout">
-          <header class="chat-heading">
-            <p class="rubric-kicker"><i class="fa-light fa-messages-question" aria-hidden="true"></i>&nbsp;Ask the Briefing Data</p>
-            <h2>Ask one question across the stored newspaper coverage</h2>
-            <p class="rubric-lede">Answers are grounded in collected source evidence, with links shown underneath for verification.</p>
-          </header>
-          <form id="chat-form" class="chat-form">
-            <label class="visually-hidden" for="chat-question">Ask the briefing data</label>
-            <input
-              id="chat-question"
-              name="question"
-              type="search"
-              maxlength="1000"
-              autocomplete="off"
-              placeholder="Ask about positives, negatives, people issues, TVK members or a district..."
-              required
-            >
-            <button type="submit" class="btn btn--primary chat-submit" id="chat-submit">
-              <i class="fa-light fa-wand-magic-sparkles" aria-hidden="true"></i>
-              <span>Ask AI</span>
-            </button>
-          </form>
-          <p id="chat-status" class="chat-status" role="status" aria-live="polite">Try: What are the main people issues today?</p>
-          <article id="chat-answer-card" class="chat-answer-card" hidden>
-            <header class="chat-answer-head">
-              <span id="chat-answer-badge" class="chat-answer-badge">AI answer from stored evidence</span>
-            </header>
-            <p id="chat-answer-text" class="chat-answer-text"></p>
-            <div id="chat-evidence-list" class="chat-evidence-list" aria-label="Evidence used for the answer"></div>
-          </article>
-        </div>
-      </section>
 
 
       {% if themes.has_themes %}
@@ -238,8 +204,8 @@
         <button type="button" class="fcard fcard--all is-active" data-filter="all" role="tab" aria-selected="true">
           <span class="fcard-icon" aria-hidden="true"><i class="fa-light fa-newspaper"></i></span>
           <span class="fcard-label">All Coverage</span>
-          <span class="fcard-number" data-counter="{{ summary.total_items }}">{{ summary.total_items }}</span>
-          <span class="fcard-meta">Articles in pilot</span>
+          <span class="fcard-number" data-counter="{{ summary.briefing_total }}">{{ summary.briefing_total }}</span>
+          <span class="fcard-meta">Relevant stories &middot; {{ summary.total_items }} ingested</span>
         </button>
         <button type="button" class="fcard fcard--positive" data-filter="positive" role="tab" aria-selected="false">
           <span class="fcard-icon" aria-hidden="true"><i class="fa-light fa-thumbs-up"></i></span>
@@ -265,6 +231,223 @@
           <span class="fcard-number" data-counter="{{ summary.people_issue_count }}">{{ summary.people_issue_count }}</span>
           <span class="fcard-meta">Needs attention</span>
         </button>
+      </section>
+
+      <section id="districts" class="region-explorer" aria-label="District and department explorer">
+        <header class="rubric">
+          <div class="rubric-text">
+            <p class="rubric-kicker"><i class="fa-light fa-gauge-high" aria-hidden="true"></i>&nbsp;Daily Command Overview</p>
+            <h2>Where it&rsquo;s happening, what&rsquo;s urgent, who&rsquo;s in the news</h2>
+            <p class="rubric-lede">The map shows where coverage clusters by district, the centre lists the items needing action now, and the right ranks departments by volume. Click any district or department to filter the cards below.</p>
+          </div>
+          <div class="rubric-meta">
+            <button type="button" id="region-clear" class="region-clear" hidden>
+              <i class="fa-light fa-xmark" aria-hidden="true"></i>&nbsp;Clear selection
+            </button>
+          </div>
+        </header>
+
+        <div class="region-layout">
+          <div class="district-map-pane">
+            <div class="map-hover" id="map-hover" aria-hidden="true">
+              <span class="map-hover-name" id="map-hover-name">Tamil Nadu</span>
+              <span class="map-hover-count" id="map-hover-count">{{ district_summary.mapped_total }} stories</span>
+            </div>
+            <svg
+              class="district-svg"
+              id="district-map"
+              viewBox="{{ tn_map_viewbox }}"
+              role="listbox"
+              aria-label="Tamil Nadu districts"
+              preserveAspectRatio="xMidYMid meet"
+            >
+              <g class="district-shapes">
+                {% for tile in district_summary.tiles %}
+                  <path
+                    class="district-shape district-shape--{{ tile.dominant }}"
+                    d="{{ tile.path }}"
+                    data-district="{{ tile.district }}"
+                    data-total="{{ tile.total }}"
+                    role="option"
+                    aria-selected="false"
+                    tabindex="0"
+                  ><title>{{ tile.district }} — {{ tile.total }} stor{{ 'y' if tile.total == 1 else 'ies' }}</title></path>
+                {% endfor %}
+              </g>
+              <g class="district-counts" aria-hidden="true">
+                {% for tile in district_summary.tiles if tile.total %}
+                  <g class="district-count district-count--{{ tile.dominant }}" data-district="{{ tile.district }}" transform="translate({{ tile.label_x }}, {{ tile.label_y }})">
+                    <circle r="11"></circle>
+                    <text dy="3.5">{{ tile.total }}</text>
+                  </g>
+                {% endfor %}
+              </g>
+            </svg>
+            <p class="map-footnote">
+              <span class="map-legend"><i class="legend-dot legend-dot--negative"></i>Negative</span>
+              <span class="map-legend"><i class="legend-dot legend-dot--people"></i>People issue</span>
+              <span class="map-legend"><i class="legend-dot legend-dot--mixed"></i>Mixed</span>
+              <span class="map-legend"><i class="legend-dot legend-dot--positive"></i>Positive</span>
+              <span class="map-legend"><i class="legend-dot legend-dot--quiet"></i>No stories</span>
+              {% if district_summary.unmapped_total %}
+                &middot; {{ district_summary.unmapped_total }} statewide / unmapped
+              {% endif %}
+            </p>
+          </div>
+
+          {% if emerging_signals %}
+            <div class="command-alerts command-signals" aria-label="Emerging signals">
+              <header class="command-col-head">
+                <span class="command-col-title"><i class="fa-light fa-radar" aria-hidden="true"></i>&nbsp;Emerging Signals</span>
+                <span class="command-col-count">surge vs baseline</span>
+              </header>
+              <ul class="signal-list">
+                {% for sig in emerging_signals %}
+                  <li class="signal-row signal-row--{{ 'threat' if sig.is_threat else 'developing' }}" data-entity-slug="{{ sig.slug }}" role="button" tabindex="0" title="Open {{ sig.name }} dossier">
+                    <div class="signal-row-top">
+                      <span class="signal-badge">{{ sig.label }}</span>
+                      <span class="signal-z" title="{{ sig.recent_daily_avg }}/day now vs {{ sig.baseline_daily_avg }}/day baseline">▲ {{ sig.z_score }}σ</span>
+                      <span class="signal-type">{{ sig.entity_type }}</span>
+                    </div>
+                    <p class="signal-name">{{ sig.name }}
+                      <span class="signal-meta">{{ sig.recent_mentions }} stories in 3d{% if sig.recent_negative %} · {{ sig.recent_negative }} negative{% endif %}</span>
+                    </p>
+                    {% if sig.headline.title or sig.headline.summary %}
+                      <p class="signal-headline">{{ sig.headline.title or sig.headline.summary }}</p>
+                    {% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+
+          <div class="command-alerts" id="priority-alerts" aria-label="Priority alerts">
+            <header class="command-col-head">
+              <span class="command-col-title"><i class="fa-light fa-siren-on" aria-hidden="true"></i>&nbsp;Priority Alerts</span>
+              {% if priority_alerts %}<span class="command-col-count">{{ priority_alerts|length }} now</span>{% endif %}
+            </header>
+            {% if priority_alerts %}
+              <ul class="alert-list">
+                {% for alert in priority_alerts %}
+                  <li class="alert-row alert-row--{{ alert.portrayal_kind }}">
+                    <div class="alert-row-top">
+                      {% if alert.action_priority %}<span class="alert-sev alert-sev--{{ alert.action_priority|lower }}">{{ alert.action_priority|upper }}</span>{% endif %}
+                      <span class="alert-tag">{{ alert.stance_label.split(' / ')[0] }}</span>
+                      {% if alert.needs_human_review %}<span class="alert-review" title="Awaiting human review"><i class="fa-light fa-user-magnifying-glass" aria-hidden="true"></i></span>{% endif %}
+                      <span class="alert-src">{{ alert.source_name }}{% if alert.source_count > 1 %} +{{ alert.source_count - 1 }}{% endif %}</span>
+                    </div>
+                    <p class="alert-title">{{ alert.title or alert.summary }}</p>
+                    {% if alert.risk_if_ignored %}<p class="alert-line"><i class="fa-light fa-triangle-exclamation" aria-hidden="true"></i>&nbsp;{{ alert.risk_if_ignored }}</p>{% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <p class="command-empty">No urgent items right now.</p>
+            {% endif %}
+          </div>
+
+          <aside class="district-detail" id="district-detail" aria-live="polite">
+            <h3 id="district-detail-name">Tamil Nadu — statewide</h3>
+            <p class="district-detail-total" id="district-detail-total">{{ district_summary.mapped_total }} district-tagged stories across {{ district_summary.tiles | selectattr('total') | list | length }} of 38 districts &middot; {{ district_summary.unmapped_total }} statewide</p>
+            <dl class="district-detail-counts" id="district-detail-counts"></dl>
+            <div class="district-detail-issues" id="district-detail-issues"></div>
+            <div class="district-detail-mlas" id="district-detail-mlas">
+              {% if party_seats %}
+                <h4>Assembly seats by party</h4>
+                <div class="party-tally" id="party-tally">
+                  {% for row in party_seats %}
+                    <span class="party-chip party-chip--{{ row.party_css }}" title="{{ row.party }}">{{ row.party_short }} <b>{{ row.seats }}</b></span>
+                  {% endfor %}
+                </div>
+                {% if assembly_label %}<p class="roster-vintage">{{ assembly_label }} — replace configs/mla_roster.json to update.</p>{% endif %}
+              {% endif %}
+            </div>
+            <p class="district-detail-hint" id="district-detail-hint">Click a district on the map to see its coverage, constituencies and MLAs.</p>
+          </aside>
+
+          <aside class="department-rail" aria-label="Departments">
+            <h3><i class="fa-light fa-building-columns" aria-hidden="true"></i>&nbsp;Departments</h3>
+            {% if department_summary %}
+              <ul class="department-list">
+                {% for dept in department_summary %}
+                  <li>
+                    <button type="button" class="dept-row dept-row--{{ dept.dominant }}" data-department="{{ dept.department }}" aria-pressed="false">
+                      <span class="dept-name">{{ dept.label }}</span>
+                      <span class="dept-bars" aria-hidden="true">
+                        {% if dept.negative %}<i class="dept-bar dept-bar--negative" title="{{ dept.negative }} negative">{{ dept.negative }}</i>{% endif %}
+                        {% if dept.people %}<i class="dept-bar dept-bar--people" title="{{ dept.people }} people issues">{{ dept.people }}</i>{% endif %}
+                        {% if dept.positive %}<i class="dept-bar dept-bar--positive" title="{{ dept.positive }} positive">{{ dept.positive }}</i>{% endif %}
+                      </span>
+                      <span class="dept-count">{{ dept.total }}</span>
+                    </button>
+                  </li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <p class="department-empty">No department-tagged stories yet.</p>
+            {% endif %}
+          </aside>
+        </div>
+
+        <script type="application/json" id="district-data">{{ district_summary.tiles | tojson }}</script>
+      </section>
+
+      <section id="key-figures" class="intel-section" aria-label="Key figures and intelligence graph">
+        <header class="rubric">
+          <div class="rubric-text">
+            <p class="rubric-kicker"><i class="fa-light fa-user-tie" aria-hidden="true"></i>&nbsp;Key Figures &amp; Intelligence Graph</p>
+            <h2>Who Is Winning the Narrative</h2>
+            <p class="rubric-lede">Per-figure reputation across all coverage — favourability, trend and momentum. Click anyone to open their dossier: portrayal over time, who they appear alongside, and cited evidence.</p>
+          </div>
+        </header>
+
+        <div class="intel-scorecards" id="actor-scorecards" aria-busy="true">
+          <p class="intel-loading">Loading key figures…</p>
+        </div>
+
+        <div class="intel-graph">
+          <div class="intel-graph-head">
+            <h3><i class="fa-light fa-diagram-project" aria-hidden="true"></i>&nbsp;Intelligence graph</h3>
+            <div class="intel-tabs" role="tablist" aria-label="Entity types">
+              <button type="button" class="intel-tab is-active" data-entity-type="person" role="tab" aria-selected="true">People</button>
+              <button type="button" class="intel-tab" data-entity-type="party" role="tab" aria-selected="false">Parties</button>
+              <button type="button" class="intel-tab" data-entity-type="office" role="tab" aria-selected="false">Offices</button>
+              <button type="button" class="intel-tab" data-entity-type="department" role="tab" aria-selected="false">Departments</button>
+              <button type="button" class="intel-tab" data-entity-type="source" role="tab" aria-selected="false">Sources</button>
+            </div>
+          </div>
+          <div class="intel-chips" id="intel-entity-chips" aria-busy="true"></div>
+        </div>
+
+        {% if model_status %}
+          <div class="model-health" aria-label="Learning loop health">
+            <div class="model-health-head">
+              <span class="model-health-title"><i class="fa-light fa-arrows-spin" aria-hidden="true"></i>&nbsp;Self-learning loop</span>
+              {% if model_status.has_run %}
+                <span class="model-health-state is-on">active</span>
+              {% else %}
+                <span class="model-health-state is-idle">awaiting first run</span>
+              {% endif %}
+            </div>
+            <div class="model-health-stats">
+              <span class="mh-stat mh-stat--gold" title="Human-verified labels — the only tier that gates promotion"><b>{{ model_status.gold }}</b> gold</span>
+              <span class="mh-stat mh-stat--silver" title="Teacher-agreed / high-confidence labels"><b>{{ model_status.silver }}</b> silver</span>
+              <span class="mh-stat mh-stat--bronze" title="Raw model output, unverified"><b>{{ model_status.bronze }}</b> bronze</span>
+              {% if model_status.live_version %}
+                <span class="mh-stat mh-stat--model" title="Live model gold-test metric"><b>{{ model_status.live_metric }}</b> live · v{{ model_status.live_version }}</span>
+              {% else %}
+                <span class="mh-stat mh-stat--model">no model promoted yet</span>
+              {% endif %}
+            </div>
+            <p class="model-health-note">
+              {% if model_status.has_run %}
+                Every operator correction becomes a gold label; the trainer promotes a new model only when it beats the live one on the held-out gold set.
+              {% else %}
+                Correct any misclassified card (the ✎ menu) — those corrections become gold labels that train and gate the next model when the nightly loop runs.
+              {% endif %}
+            </p>
+          </div>
+        {% endif %}
       </section>
 
       <section id="narratives" class="narrative-section">
@@ -351,8 +534,10 @@
               data-source="{{ item.source_name }}"
               data-needs-review="{{ 'true' if item.needs_human_review else 'false' }}"
               data-published-at="{{ (item.published_at or item.ingested_at).isoformat() if (item.published_at or item.ingested_at) else '' }}"
-              data-department="{{ item.department }}"
+              data-department="{{ item.department_canonical }}"
               data-district="{{ item.district }}"
+              data-district-canonical="{{ item.district_canonical }}"
+              data-public-issue="{{ item.public_issue }}"
             >
               <header class="card-byline">
                 {% if item.is_consolidated %}
@@ -383,101 +568,130 @@
                 </ul>
               {% endif %}
 
-              <h3 class="card-headline">{{ item.title or "Untitled item" }}</h3>
+              <h3 class="card-headline">{{ item.title or "(headline unavailable)" }}</h3>
 
               <p class="card-summary card-summary--en">{{ item.summary_english or item.summary }}</p>
 
-              {% if item.party_action or item.people_impact or item.root_cause or item.recommended_step %}
-                <dl class="briefing-lines" aria-label="Briefing lines">
-                  {% if item.public_issue %}
-                    <div class="briefing-line briefing-line--people">
-                      <dt><i class="fa-light fa-triangle-exclamation" aria-hidden="true"></i><span>Issue</span></dt>
-                      <dd>{{ item.public_issue }}</dd>
-                    </div>
-                  {% endif %}
-                  {% if item.party_action %}
-                    <div class="briefing-line briefing-line--party">
-                      <dt><i class="fa-light fa-flag" aria-hidden="true"></i><span>Party</span></dt>
-                      <dd>{{ item.party_action }}</dd>
-                    </div>
-                  {% endif %}
-                  {% if item.people_impact %}
-                    <div class="briefing-line briefing-line--people">
-                      <dt><i class="fa-light fa-people-group" aria-hidden="true"></i><span>People</span></dt>
-                      <dd>{{ item.people_impact }}</dd>
-                    </div>
-                  {% endif %}
-                  {% if item.root_cause %}
-                    <div class="briefing-line briefing-line--why">
-                      <dt><i class="fa-light fa-magnifying-glass" aria-hidden="true"></i><span>Why</span></dt>
-                      <dd>{{ item.root_cause }}</dd>
-                    </div>
-                  {% endif %}
-                  {% if item.recommended_step %}
-                    <div class="briefing-line briefing-line--step">
-                      <dt><i class="fa-light fa-bullseye-arrow" aria-hidden="true"></i><span>Next step</span></dt>
-                      <dd>{{ item.recommended_step }}</dd>
-                    </div>
-                  {% endif %}
-                  {% if item.action_owner or item.action_type %}
-                    <div class="briefing-line briefing-line--route">
-                      <dt><i class="fa-light fa-route" aria-hidden="true"></i><span>Route</span></dt>
-                      <dd>
-                        {{ item.action_owner or "Media monitoring desk" }}
-                        {% if item.action_type %}&middot; {{ item.action_type.replace('_', ' ') }}{% endif %}
-                        {% if item.action_priority %}&middot; {{ item.action_priority }} priority{% endif %}
-                      </dd>
-                    </div>
-                  {% endif %}
-                </dl>
+              {% set resp = item.responsibility %}
+              {% if resp and resp.actionable %}
+                <div class="who-acts" aria-label="Who should act">
+                  <span class="who-acts-label"><i class="fa-light fa-scale-balanced" aria-hidden="true"></i>&nbsp;Who acts</span>
+                  {% if resp.department %}<span class="who-chip who-chip--dept" title="Responsible government department"><i class="fa-light fa-building-columns" aria-hidden="true"></i>&nbsp;{{ resp.department }}</span>{% endif %}
+                  {% if resp.district %}<span class="who-chip who-chip--dist" title="District administration"><i class="fa-light fa-location-dot" aria-hidden="true"></i>&nbsp;{{ resp.district }}</span>{% endif %}
+                  {% if resp.escalate_cm %}<span class="who-chip who-chip--cm" title="High priority — escalate to the Chief Minister"><i class="fa-light fa-arrow-up-right-dots" aria-hidden="true"></i>&nbsp;Escalate to CM</span>{% endif %}
+                </div>
               {% endif %}
 
-              {% if item.risk_if_ignored or item.talking_points or item.verification_checklist or item.draft_statement_english or item.draft_statement_original %}
-                <details class="action-playbook">
-                  <summary><i class="fa-light fa-clipboard-list" aria-hidden="true"></i>&nbsp;Action playbook</summary>
-                  {% if item.risk_if_ignored %}
-                    <div class="playbook-block playbook-block--risk">
-                      <h5><i class="fa-light fa-triangle-exclamation" aria-hidden="true"></i>&nbsp;Risk if ignored</h5>
-                      <p>{{ item.risk_if_ignored }}</p>
-                    </div>
-                  {% endif %}
-                  {% if item.verification_checklist %}
-                    <div class="playbook-block playbook-block--verify">
-                      <h5><i class="fa-light fa-list-check" aria-hidden="true"></i>&nbsp;Verify first</h5>
-                      <ul>
-                        {% for check in item.verification_checklist %}<li>{{ check }}</li>{% endfor %}
-                      </ul>
-                    </div>
-                  {% endif %}
-                  {% if item.talking_points %}
-                    <div class="playbook-block playbook-block--talk">
-                      <h5><i class="fa-light fa-comment" aria-hidden="true"></i>&nbsp;Talking points</h5>
-                      <ul>
-                        {% for point in item.talking_points %}<li>{{ point }}</li>{% endfor %}
-                      </ul>
-                    </div>
-                  {% endif %}
-                  {% if item.draft_statement_english or item.draft_statement_original %}
-                    <div class="playbook-block playbook-block--draft">
-                      <h5><i class="fa-light fa-pen-nib" aria-hidden="true"></i>&nbsp;Draft statement</h5>
-                      {% if item.draft_statement_english %}<p>{{ item.draft_statement_english }}</p>{% endif %}
-                      {% if item.draft_statement_original %}<p class="draft-original">{{ item.draft_statement_original }}</p>{% endif %}
-                    </div>
-                  {% endif %}
+              {% set has_briefing = item.public_issue or item.party_action or item.people_impact or item.root_cause or item.recommended_step %}
+              {% set has_playbook = item.risk_if_ignored or item.talking_points or item.verification_checklist or item.draft_statement_english or item.draft_statement_original %}
+              {% set has_resp_detail = resp and (resp.collector or resp.mlas) %}
+              {% if has_briefing or has_playbook or has_resp_detail or item.evidence_original %}
+                <details class="card-details">
+                  <summary>
+                    <span class="card-details-toggle"><i class="fa-light fa-chevron-down details-chevron" aria-hidden="true"></i> Details &amp; action</span>
+                  </summary>
+                  <div class="card-details-body">
+                    {% if has_briefing %}
+                      <dl class="briefing-lines" aria-label="Briefing lines">
+                        {% if item.public_issue %}
+                          <div class="briefing-line briefing-line--people">
+                            <dt><i class="fa-light fa-triangle-exclamation" aria-hidden="true"></i><span>Issue</span></dt>
+                            <dd>{{ item.public_issue }}</dd>
+                          </div>
+                        {% endif %}
+                        {% if item.party_action %}
+                          <div class="briefing-line briefing-line--party">
+                            <dt><i class="fa-light fa-flag" aria-hidden="true"></i><span>Party</span></dt>
+                            <dd>{{ item.party_action }}</dd>
+                          </div>
+                        {% endif %}
+                        {% if item.people_impact %}
+                          <div class="briefing-line briefing-line--people">
+                            <dt><i class="fa-light fa-people-group" aria-hidden="true"></i><span>People</span></dt>
+                            <dd>{{ item.people_impact }}</dd>
+                          </div>
+                        {% endif %}
+                        {% if item.root_cause %}
+                          <div class="briefing-line briefing-line--why">
+                            <dt><i class="fa-light fa-magnifying-glass" aria-hidden="true"></i><span>Why</span></dt>
+                            <dd>{{ item.root_cause }}</dd>
+                          </div>
+                        {% endif %}
+                        {% if item.recommended_step %}
+                          <div class="briefing-line briefing-line--step">
+                            <dt><i class="fa-light fa-bullseye-arrow" aria-hidden="true"></i><span>Next step</span></dt>
+                            <dd>{{ item.recommended_step }}</dd>
+                          </div>
+                        {% endif %}
+                      </dl>
+                    {% endif %}
+
+                    {% if resp and (resp.department or resp.collector or resp.mlas or resp.escalate_cm) %}
+                      <div class="resp-detail">
+                        <h5><i class="fa-light fa-scale-balanced" aria-hidden="true"></i>&nbsp;Who is responsible</h5>
+                        <ul class="resp-list">
+                          {% if resp.department %}<li><span class="resp-k">Department</span><span class="resp-v">{{ resp.department }}</span></li>{% endif %}
+                          {% if resp.collector %}<li><span class="resp-k">Local</span><span class="resp-v">{{ resp.collector }} &amp; area MLA</span></li>{% endif %}
+                          {% if resp.escalate_cm %}<li><span class="resp-k">Escalate</span><span class="resp-v">Chief Minister (Vijay) — high priority</span></li>{% endif %}
+                        </ul>
+                        {% if resp.mlas %}
+                          <p class="resp-mla-label">{{ resp.district }} constituencies ({{ resp.mla_count }} MLAs):</p>
+                          <div class="resp-mlas">
+                            {% for m in resp.mlas %}<span class="party-chip party-chip--{{ m.party_css }}" title="{{ m.mla }} ({{ m.party }})">{{ m.constituency }} <b>{{ m.party_short }}</b></span>{% endfor %}
+                            {% if resp.mla_count > resp.mlas|length %}<span class="resp-more">+{{ resp.mla_count - resp.mlas|length }} more</span>{% endif %}
+                          </div>
+                        {% endif %}
+                      </div>
+                    {% endif %}
+
+                    {% if has_playbook %}
+                      <div class="playbook-inner">
+                        {% if item.risk_if_ignored %}
+                          <div class="playbook-block playbook-block--risk">
+                            <h5><i class="fa-light fa-triangle-exclamation" aria-hidden="true"></i>&nbsp;Risk if ignored</h5>
+                            <p>{{ item.risk_if_ignored }}</p>
+                          </div>
+                        {% endif %}
+                        {% if item.verification_checklist %}
+                          <div class="playbook-block playbook-block--verify">
+                            <h5><i class="fa-light fa-list-check" aria-hidden="true"></i>&nbsp;Verify first</h5>
+                            <ul>
+                              {% for check in item.verification_checklist %}<li>{{ check }}</li>{% endfor %}
+                            </ul>
+                          </div>
+                        {% endif %}
+                        {% if item.talking_points %}
+                          <div class="playbook-block playbook-block--talk">
+                            <h5><i class="fa-light fa-comment" aria-hidden="true"></i>&nbsp;Talking points</h5>
+                            <ul>
+                              {% for point in item.talking_points %}<li>{{ point }}</li>{% endfor %}
+                            </ul>
+                          </div>
+                        {% endif %}
+                        {% if item.draft_statement_english or item.draft_statement_original %}
+                          <div class="playbook-block playbook-block--draft">
+                            <h5><i class="fa-light fa-pen-nib" aria-hidden="true"></i>&nbsp;Draft statement</h5>
+                            {% if item.draft_statement_english %}<p>{{ item.draft_statement_english }}</p>{% endif %}
+                            {% if item.draft_statement_original %}<p class="draft-original">{{ item.draft_statement_original }}</p>{% endif %}
+                          </div>
+                        {% endif %}
+                      </div>
+                    {% endif %}
+
+                    {% if item.evidence_original %}
+                      <blockquote class="card-quote">
+                        {% for quote in item.evidence_original %}
+                          <p>{{ quote }}</p>
+                        {% endfor %}
+                        <cite>Evidence &middot; {{ item.source_name }}</cite>
+                      </blockquote>
+                    {% endif %}
+                  </div>
                 </details>
               {% endif %}
 
-              {% if item.evidence_original %}
-                <blockquote class="card-quote">
-                  {% for quote in item.evidence_original %}
-                    <p>{{ quote }}</p>
-                  {% endfor %}
-                  <cite>Evidence &middot; {{ item.source_name }}</cite>
-                </blockquote>
-              {% endif %}
-
               <footer class="card-foot">
-                <span class="card-context"><i class="fa-light fa-building" aria-hidden="true"></i>&nbsp;{{ item.department }} &middot; <i class="fa-light fa-location-dot" aria-hidden="true"></i>&nbsp;{{ item.district }}</span>
+                <span class="card-context">{% if item.published_at %}<i class="fa-light fa-calendar" aria-hidden="true"></i>&nbsp;{{ item.published_at.strftime('%d %b %Y') }}{% elif item.district and item.district != 'unspecified' %}<i class="fa-light fa-location-dot" aria-hidden="true"></i>&nbsp;{{ item.district }}{% endif %}</span>
                 <div class="card-actions" role="group" aria-label="Card actions">
                   <div class="card-correct" data-analysis-id="{{ item.analysis_id }}">
                     <button type="button" class="card-action card-action--correct" aria-haspopup="menu" aria-expanded="false" title="Fix the AI's stance classification">
@@ -542,7 +756,7 @@
                     <span class="stance-chip stance-chip--{{ item.portrayal_kind }}">{{ item.stance_label.split(' / ')[0] }}</span>
                   </td>
                   <td class="col-title">
-                    <strong>{{ item.title or "Untitled item" }}</strong>
+                    <strong>{{ item.title or "(headline unavailable)" }}</strong>
                     {% if item.summary_english or item.summary %}
                       <span class="row-summary">{{ item.summary_english or item.summary }}</span>
                     {% endif %}
@@ -570,6 +784,18 @@
             </tbody>
           </table>
         </div>
+
+        <nav id="narrative-pagination" class="pagination" aria-label="Briefing pages" hidden>
+          <button type="button" class="pagination-btn" data-page-prev>
+            <i class="fa-light fa-chevron-left" aria-hidden="true"></i>
+            <span>Previous</span>
+          </button>
+          <span class="pagination-status" data-page-status aria-live="polite">Page 1</span>
+          <button type="button" class="pagination-btn" data-page-next>
+            <span>Next</span>
+            <i class="fa-light fa-chevron-right" aria-hidden="true"></i>
+          </button>
+        </nav>
       </section>
 
       <section id="people" class="two-column-briefing" aria-label="People issues and positive coverage">
@@ -582,7 +808,7 @@
             {% for item in concern_items %}
               <article class="brief-item">
                 <p class="brief-source"><i class="fa-light fa-newspaper" aria-hidden="true"></i>&nbsp;{{ item.source_name }} &middot; <em>{{ item.stance_label.split(' / ')[0] }}</em>{% if item.department and item.department|lower not in ('general','unspecified') %} &middot; {{ item.department }}{% endif %}</p>
-                <h4>{{ item.title or "Untitled item" }}</h4>
+                <h4>{{ item.title or "(headline unavailable)" }}</h4>
                 <p class="brief-lede">{{ item.summary_english or item.summary }}</p>
                 {% if item.root_cause or item.recommended_step %}
                   <dl class="brief-actions">
@@ -622,7 +848,7 @@
             {% for item in positive_items %}
               <article class="brief-item">
                 <p class="brief-source"><i class="fa-light fa-newspaper" aria-hidden="true"></i>&nbsp;{{ item.source_name }}{% if item.department and item.department|lower not in ('general','unspecified') %} &middot; {{ item.department }}{% endif %}</p>
-                <h4>{{ item.title or "Untitled item" }}</h4>
+                <h4>{{ item.title or "(headline unavailable)" }}</h4>
                 <p class="brief-lede">{{ item.summary_english or item.summary }}</p>
                 {% if item.root_cause or item.recommended_step %}
                   <dl class="brief-actions">
@@ -793,5 +1019,48 @@
         </p>
       </div>
     </footer>
+
+    <!-- Ask AI — floating assistant -->
+    <div id="ask-ai" class="ai-fab-wrap">
+      <button type="button" class="ai-fab" id="ai-fab-toggle" aria-expanded="false" aria-controls="ai-fab-panel" title="Ask the briefing data">
+        <i class="fa-light fa-wand-magic-sparkles" aria-hidden="true"></i>
+        <span class="ai-fab-label">Ask AI</span>
+      </button>
+      <section class="ai-fab-panel" id="ai-fab-panel" role="dialog" aria-modal="false" aria-label="Ask the briefing data" hidden>
+        <header class="ai-fab-head">
+          <span class="ai-fab-title"><i class="fa-light fa-wand-magic-sparkles" aria-hidden="true"></i>&nbsp;Ask the Briefing</span>
+          <button type="button" class="ai-fab-close" id="ai-fab-close" aria-label="Close assistant"><i class="fa-light fa-xmark" aria-hidden="true"></i></button>
+        </header>
+        <div class="ai-fab-body">
+          <div id="chat-thread" class="chat-thread" role="log" aria-live="polite" aria-label="Conversation with the briefing assistant"></div>
+          <form id="chat-form" class="chat-compose">
+            <label class="visually-hidden" for="chat-question">Ask the briefing data</label>
+            <textarea
+              id="chat-question"
+              name="question"
+              rows="1"
+              maxlength="1000"
+              autocomplete="off"
+              placeholder="Ask about today's briefing…"
+            ></textarea>
+            <button type="submit" class="chat-send" id="chat-submit" aria-label="Send message" title="Send">
+              <i class="fa-light fa-arrow-up" aria-hidden="true"></i>
+            </button>
+          </form>
+          <p id="chat-status" class="chat-status" role="status" aria-live="polite">Grounded in stored newspaper evidence · sources linked</p>
+        </div>
+      </section>
+    </div>
+
+    <!-- Entity dossier — war-room modal -->
+    <div id="entity-modal" class="entity-modal" hidden>
+      <div class="entity-modal-backdrop" data-entity-close></div>
+      <div class="entity-modal-card" role="dialog" aria-modal="true" aria-labelledby="entity-modal-name">
+        <button type="button" class="entity-modal-close" data-entity-close aria-label="Close dossier"><i class="fa-light fa-xmark" aria-hidden="true"></i></button>
+        <div class="entity-modal-body" id="entity-modal-body" aria-live="polite">
+          <p class="intel-loading">Loading dossier…</p>
+        </div>
+      </div>
+    </div>
   </body>
 </html>

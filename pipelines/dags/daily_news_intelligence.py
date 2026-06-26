@@ -32,6 +32,26 @@ if dag and task:
 
             main([])
 
-        run_daily_news_pipeline()
+        @task
+        def resolve_entities():
+            # Refresh the knowledge graph so dossiers, scorecards, the map and
+            # spike detection reflect the night's new coverage.
+            from pipelines.resolve_entities import main
+
+            main([])
+
+        @task
+        def run_flywheel():
+            # Self-improving loop: human corrections → gold, teacher→silver,
+            # train, eval, gated promote. Idempotent; never auto-promotes without
+            # beating the live model on the gold test set.
+            from pipelines.flywheel import main
+
+            main(["--teacher", "openai"])
+
+        ingest = run_daily_news_pipeline()
+        resolved = resolve_entities()
+        learned = run_flywheel()
+        ingest >> resolved >> learned
 
     daily_news_intelligence()

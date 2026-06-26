@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from tnmi.ai import (
-    _has_people_issue,
+    _detect_people_issue,
     _has_tvk_reference,
     _public_issue_profile,
 )
@@ -99,7 +99,9 @@ def _audit_one(raw: RawItemRecord, analysis: AIAnalysisRecord) -> list[AnalysisQ
     body = raw.clean_text_original or raw.raw_text_original or ""
     text_original = f"{title}\n{body}"
     text_lower = text_original.lower()
-    has_people_signal = _has_people_issue(text_lower, body)
+    # Use the same canonical, precise people-issue definition the analysers use,
+    # so the audit and the stored classification agree on what a people issue is.
+    has_people_signal = _detect_people_issue(title, body, raw.source_url)
     profile = _public_issue_profile(title, body) if has_people_signal else None
     expected_people_issue = _expects_people_issue(
         profile=profile,

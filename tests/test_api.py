@@ -1,7 +1,10 @@
+import json
+
 from fastapi.testclient import TestClient
 
 from apps.api import main as api_main
 from apps.api.main import app
+from tnmi.contracts import Severity, Stance
 from tnmi.storage import create_session_factory, init_db, save_ai_analysis, save_raw_item
 from tests.test_storage import make_analysis, make_item
 
@@ -138,6 +141,54 @@ def test_dashboard_json_and_review_queue_endpoints(monkeypatch, tmp_path):
     assert queue.json()[0]["analysis_id"] == analysis.id
 
 
+def test_dashboard_alerts_endpoint_surfaces_urgent_negative_item(monkeypatch, tmp_path):
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'api-alerts.db'}")
+    init_db(session_factory)
+    with session_factory() as session:
+        raw = save_raw_item(session, make_item())
+        save_ai_analysis(
+            session,
+            raw.id,
+            make_analysis().model_copy(
+                update={
+                    "stance_toward_government": Stance.NEGATIVE,
+                    "tvk_portrayal": Stance.NEGATIVE,
+                    "severity": Severity.CRITICAL,
+                    "action_priority": Severity.CRITICAL,
+                    "needs_human_review": True,
+                    "summary_english": "Urgent negative item.",
+                    "risk_if_ignored": "Narrative hardens against TVK.",
+                }
+            ),
+            model_name="mock",
+            prompt_version="v1",
+        )
+        session.commit()
+
+    class FakeSettings:
+        database_url = f"sqlite:///{tmp_path / 'api-alerts.db'}"
+        news_source_config = tmp_path / "missing.yaml"
+        report_output_dir = tmp_path / "reports"
+        operator_api_token = None
+
+    monkeypatch.setattr(api_main, "Settings", FakeSettings)
+    client = TestClient(app)
+
+    response = client.get("/dashboard/alerts")
+
+    assert response.status_code == 200
+    payload = response.json()
+    # New shape: forward-looking emerging signals + the urgent priority backlog.
+    assert "emerging_signals" in payload
+    assert isinstance(payload["emerging_signals"], list)
+    priority = payload["priority"]
+    assert len(priority) == 1
+    assert priority[0]["display_category"] == "negative"
+    assert priority[0]["action_priority"] == "critical"
+    assert priority[0]["needs_human_review"] is True
+    assert priority[0]["risk_if_ignored"] == "Narrative hardens against TVK."
+
+
 def test_review_decision_endpoint_records_latest_review(monkeypatch, tmp_path):
     session_factory = create_session_factory(f"sqlite:///{tmp_path / 'api-review.db'}")
     init_db(session_factory)
@@ -206,7 +257,9 @@ def test_dashboard_html_renders_summary_and_review_queue(monkeypatch, tmp_path):
     assert 'data-filter="mixed"' in response.text
     assert 'data-filter="people"' in response.text
     assert "Positive and Negative Portrayal With Evidence" in response.text
-    assert "Ask the Briefing Data" in response.text
+    # Ask AI is now a floating assistant (corner launcher + chat panel)
+    assert 'id="ai-fab-toggle"' in response.text
+    assert 'id="chat-form"' in response.text
     assert "Ask AI" in response.text
     assert "People Issues" in response.text
     assert "Needs review." in response.text
@@ -254,7 +307,7 @@ def test_chat_ask_endpoint_returns_ai_answer_with_evidence(monkeypatch, tmp_path
     class FakeProvider:
         model_name = "fake-ai"
 
-        def answer(self, question, evidence):  # type: ignore[no-untyped-def]
+        def answer(self, question, evidence, *, dossier_context=""):  # type: ignore[no-untyped-def]
             assert question == "What is positive?"
             assert evidence[0].source_url == "https://example.com/a"
             return "The stored evidence shows a positive item."
@@ -271,6 +324,88 @@ def test_chat_ask_endpoint_returns_ai_answer_with_evidence(monkeypatch, tmp_path
     assert payload["model_name"] == "fake-ai"
     assert payload["answer"] == "The stored evidence shows a positive item."
     assert payload["evidence"][0]["source_url"] == "https://example.com/a"
+
+
+def _stream_events(text):
+    return [json.loads(line) for line in text.splitlines() if line.strip()]
+
+
+def test_chat_stream_endpoint_streams_evidence_then_answer(monkeypatch, tmp_path):
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'api-stream.db'}")
+    init_db(session_factory)
+    with session_factory() as session:
+        raw = save_raw_item(session, make_item())
+        save_ai_analysis(session, raw.id, make_analysis(), model_name="mock", prompt_version="v1")
+        session.commit()
+
+    class FakeSettings:
+        database_url = f"sqlite:///{tmp_path / 'api-stream.db'}"
+        news_source_config = tmp_path / "missing.yaml"
+        report_output_dir = tmp_path / "reports"
+        operator_api_token = None
+        ollama_host = "http://localhost:11434"
+        ollama_model = "fake"
+
+    class FakeStreamProvider:
+        model_name = "fake-ai"
+
+        def stream_answer(self, question, evidence, *, history=None, dossier_context=""):  # type: ignore[no-untyped-def]
+            assert question == "What is positive?"
+            assert evidence[0].source_url == "https://example.com/a"
+            yield "The stored evidence "
+            yield "shows a positive item."
+
+    monkeypatch.setattr(api_main, "Settings", FakeSettings)
+    monkeypatch.setattr(api_main, "_build_chat_provider", lambda settings: FakeStreamProvider())
+    client = TestClient(app)
+
+    response = client.post("/chat/stream", json={"question": "What is positive?"})
+
+    assert response.status_code == 200
+    events = _stream_events(response.text)
+    types = [event["type"] for event in events]
+    assert types[0] == "evidence"
+    assert types[-1] == "done"
+    assert events[0]["evidence"][0]["source_url"] == "https://example.com/a"
+    answer = "".join(event["text"] for event in events if event["type"] == "delta")
+    assert answer == "The stored evidence shows a positive item."
+    assert events[-1]["used_ai"] is True
+    assert events[-1]["model_name"] == "fake-ai"
+
+
+def test_chat_stream_endpoint_falls_back_to_evidence_only_when_ai_unavailable(monkeypatch, tmp_path):
+    session_factory = create_session_factory(f"sqlite:///{tmp_path / 'api-stream-fb.db'}")
+    init_db(session_factory)
+    with session_factory() as session:
+        raw = save_raw_item(session, make_item())
+        save_ai_analysis(session, raw.id, make_analysis(), model_name="mock", prompt_version="v1")
+        session.commit()
+
+    class FakeSettings:
+        database_url = f"sqlite:///{tmp_path / 'api-stream-fb.db'}"
+        news_source_config = tmp_path / "missing.yaml"
+        report_output_dir = tmp_path / "reports"
+        operator_api_token = None
+        ollama_host = "http://localhost:11434"
+        ollama_model = "fake"
+
+    def _no_provider(settings):
+        raise RuntimeError("ollama unavailable")
+
+    monkeypatch.setattr(api_main, "Settings", FakeSettings)
+    monkeypatch.setattr(api_main, "_build_chat_provider", _no_provider)
+    client = TestClient(app)
+
+    response = client.post("/chat/stream", json={"question": "What is positive?"})
+
+    assert response.status_code == 200
+    events = _stream_events(response.text)
+    assert events[0]["type"] == "evidence"
+    assert events[-1]["type"] == "done"
+    assert events[-1]["used_ai"] is False
+    assert events[-1]["model_name"] == "evidence-only"
+    answer = "".join(event["text"] for event in events if event["type"] == "delta")
+    assert answer.strip()
 
 
 def test_settings_page_and_status_mask_openai_secret(monkeypatch, tmp_path):
@@ -299,3 +434,52 @@ def test_settings_page_and_status_mask_openai_secret(monkeypatch, tmp_path):
     assert secret not in page.text
     assert status.json()["openai_configured"] is True
     assert secret not in str(status.json())
+
+
+def test_multi_tenant_routes_isolate_data_by_api_key(monkeypatch, tmp_path):
+    """With multi_tenant on, X-Tenant-Key routes each request to that tenant's
+    own database; a missing/invalid key is rejected."""
+    from tnmi.storage import save_raw_item
+    from tnmi.tenancy import ControlPlane
+    from tests.test_storage import make_item
+
+    control_url = f"sqlite:///{tmp_path / 'control.db'}"
+
+    class FakeSettings:
+        multi_tenant = True
+        control_database_url = control_url
+        tenants_dir = tmp_path / "tenants"
+        database_url = f"sqlite:///{tmp_path / 'unused.db'}"
+        news_source_config = tmp_path / "missing.yaml"
+        report_output_dir = tmp_path / "reports"
+        operator_api_token = None
+
+    monkeypatch.setattr(api_main, "Settings", FakeSettings)
+    api_main._control_plane.cache_clear()
+    api_main._cached_factory.cache_clear()
+
+    control = ControlPlane(control_url, tenants_dir=tmp_path / "tenants")
+    tvk = control.provision_tenant(name="TVK", slug="tvk", seed_entities=False)
+    control.provision_tenant(name="DMK", slug="dmk", seed_entities=False)
+    tvk_key, _ = control.issue_api_key(tenant=tvk)
+    dmk = control.get_tenant("dmk")
+    dmk_key, _ = control.issue_api_key(tenant=dmk)
+    with control.session_factory_for(tvk)() as session:
+        save_raw_item(session, make_item().model_copy(update={"title": "TVK only"}))
+        session.commit()
+
+    client = TestClient(app)
+    # TVK key sees TVK's item.
+    r_tvk = client.get("/items", headers={"X-Tenant-Key": tvk_key})
+    assert r_tvk.status_code == 200
+    assert [i["title"] for i in r_tvk.json()] == ["TVK only"]
+    # DMK key sees nothing — different database.
+    r_dmk = client.get("/items", headers={"X-Tenant-Key": dmk_key})
+    assert r_dmk.status_code == 200
+    assert r_dmk.json() == []
+    # No key is rejected.
+    assert client.get("/items").status_code == 401
+    assert client.get("/items", headers={"X-Tenant-Key": "tvk_bogus"}).status_code == 401
+
+    api_main._control_plane.cache_clear()
+    api_main._cached_factory.cache_clear()

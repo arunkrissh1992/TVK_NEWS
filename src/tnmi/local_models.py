@@ -37,12 +37,14 @@ import logging
 import re
 from typing import Any
 
+from tnmi.districts import detect_district
 from tnmi.ai import (
     _action_owner,
     _action_type,
     _brief_article_focus,
     _contextual_recommended_step,
     _contextual_root_cause,
+    _detect_people_issue,
     _extract_political_actors,
     _first_sentence,
     _looks_like_listing_page,
@@ -251,7 +253,7 @@ class LocalTamilAnalyzer:
             return _not_relevant_analysis(
                 title=title, evidence_quote=evidence, issue_category="listing",
             )
-        if not _looks_like_tn_content(title, body):
+        if not _looks_like_tn_content(title, body, item.source_url):
             evidence = _first_sentence(body) or title
             return _not_relevant_analysis(
                 title=title, evidence_quote=evidence, issue_category="out-of-scope",
@@ -264,7 +266,7 @@ class LocalTamilAnalyzer:
         cls = _classify_with_keywords(item)
         stance = cls["stance"]
         relevance = cls["relevance"]
-        people_issue = bool(cls["people"] or cls["negative"])
+        people_issue = _detect_people_issue(title, body, item.source_url)
         issue_profile = _public_issue_profile(title, body) if people_issue else None
         issue_severity = issue_profile.severity if issue_profile else Severity.LOW
         tvk_relevance = (
@@ -371,7 +373,7 @@ class LocalTamilAnalyzer:
             ),
             political_actors=actors,
             department="general",
-            district="unspecified",
+            district=detect_district(title, body) or "unspecified",
             scheme=None,
             topic=title or "news item",
             issue_category=(
