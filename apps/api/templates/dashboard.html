@@ -75,7 +75,6 @@
           <a href="#districts" class="nav-link" data-nav-target="districts"><i class="fa-light fa-map-location-dot" aria-hidden="true"></i><span class="nav-label">Districts</span></a>
           <a href="#key-figures" class="nav-link" data-nav-target="key-figures"><i class="fa-light fa-user-tie" aria-hidden="true"></i><span class="nav-label">Key Figures</span></a>
           <a href="#narratives" class="nav-link" data-nav-target="narratives"><i class="fa-light fa-newspaper" aria-hidden="true"></i><span class="nav-label">Narratives</span></a>
-          <a href="#people" class="nav-link" data-nav-target="people"><i class="fa-light fa-people-group" aria-hidden="true"></i><span class="nav-label">People Issues</span></a>
           <a href="#trends" class="nav-link" data-nav-target="trends"><i class="fa-light fa-chart-line" aria-hidden="true"></i><span class="nav-label">Trends</span></a>
           <a href="#evidence" class="nav-link" data-nav-target="evidence"><i class="fa-light fa-chart-column" aria-hidden="true"></i><span class="nav-label">Source Mix</span></a>
         </div>
@@ -798,87 +797,6 @@
         </nav>
       </section>
 
-      <section id="people" class="two-column-briefing" aria-label="People issues and positive coverage">
-        <article class="column column--concerns">
-          <header class="rubric compact">
-            <p class="rubric-kicker rubric-kicker--red">People Issues</p>
-            <h2>Concerns to Watch</h2>
-          </header>
-          <div class="brief-list">
-            {% for item in concern_items %}
-              <article class="brief-item">
-                <p class="brief-source"><i class="fa-light fa-newspaper" aria-hidden="true"></i>&nbsp;{{ item.source_name }} &middot; <em>{{ item.stance_label.split(' / ')[0] }}</em>{% if item.department and item.department|lower not in ('general','unspecified') %} &middot; {{ item.department }}{% endif %}</p>
-                <h4>{{ item.title or "(headline unavailable)" }}</h4>
-                <p class="brief-lede">{{ item.summary_english or item.summary }}</p>
-                {% if item.root_cause or item.recommended_step %}
-                  <dl class="brief-actions">
-                    {% if item.root_cause %}
-                      <div class="brief-action brief-action--why">
-                        <dt><i class="fa-light fa-magnifying-glass" aria-hidden="true"></i><span>Why</span></dt>
-                        <dd>{{ item.root_cause }}</dd>
-                      </div>
-                    {% endif %}
-                    {% if item.recommended_step %}
-                      <div class="brief-action brief-action--step">
-                        <dt><i class="fa-light fa-bullseye-arrow" aria-hidden="true"></i><span>Suggested next step</span></dt>
-                        <dd>{{ item.recommended_step }}</dd>
-                      </div>
-                    {% endif %}
-                  </dl>
-                {% endif %}
-                <footer class="brief-foot">
-                  <a class="brief-link" href="{{ item.source_url }}" rel="noreferrer" target="_blank">
-                    Open source
-                    <i class="fa-light fa-arrow-up-right-from-square" aria-hidden="true"></i>
-                  </a>
-                </footer>
-              </article>
-            {% else %}
-              <p class="empty">No negative or mixed people-issue items in this pilot set.</p>
-            {% endfor %}
-          </div>
-        </article>
-
-        <article class="column column--positive">
-          <header class="rubric compact">
-            <p class="rubric-kicker rubric-kicker--green">Positive Coverage</p>
-            <h2>Supportive Signals</h2>
-          </header>
-          <div class="brief-list">
-            {% for item in positive_items %}
-              <article class="brief-item">
-                <p class="brief-source"><i class="fa-light fa-newspaper" aria-hidden="true"></i>&nbsp;{{ item.source_name }}{% if item.department and item.department|lower not in ('general','unspecified') %} &middot; {{ item.department }}{% endif %}</p>
-                <h4>{{ item.title or "(headline unavailable)" }}</h4>
-                <p class="brief-lede">{{ item.summary_english or item.summary }}</p>
-                {% if item.root_cause or item.recommended_step %}
-                  <dl class="brief-actions">
-                    {% if item.root_cause %}
-                      <div class="brief-action brief-action--why">
-                        <dt><i class="fa-light fa-magnifying-glass" aria-hidden="true"></i><span>Why</span></dt>
-                        <dd>{{ item.root_cause }}</dd>
-                      </div>
-                    {% endif %}
-                    {% if item.recommended_step %}
-                      <div class="brief-action brief-action--step">
-                        <dt><i class="fa-light fa-bullseye-arrow" aria-hidden="true"></i><span>Suggested next step</span></dt>
-                        <dd>{{ item.recommended_step }}</dd>
-                      </div>
-                    {% endif %}
-                  </dl>
-                {% endif %}
-                <footer class="brief-foot">
-                  <a class="brief-link" href="{{ item.source_url }}" rel="noreferrer" target="_blank">
-                    Open source
-                    <i class="fa-light fa-arrow-up-right-from-square" aria-hidden="true"></i>
-                  </a>
-                </footer>
-              </article>
-            {% else %}
-              <p class="empty">No positive items in this pilot set.</p>
-            {% endfor %}
-          </div>
-        </article>
-      </section>
 
       {% if trends and trends.total_items %}
         {% set max_day_total = trends.stance_timeseries|map(attribute='total')|max %}
