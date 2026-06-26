@@ -3650,7 +3650,7 @@ html[data-print-mode="1"] .intel-section { display: none; }
 .model-health-note { margin: 10px 0 0; font-size: var(--font-size-8); color: var(--muted); line-height: 1.4; }
 
 /* Today's intelligence brief — the "so what", synthesised from existing signals */
-.daily-brief { margin-bottom: 18px; padding: 16px 18px; background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--tvk-red); border-radius: var(--radius-md); }
+.daily-brief { order: -20; margin-bottom: 18px; padding: 16px 18px; background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--tvk-red); border-radius: var(--radius-md); }
 .daily-brief-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
 .daily-brief-kicker { font-size: var(--font-size-7); font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--tvk-red-deep); }
 .daily-brief-date { font-size: var(--font-size-9); color: var(--muted); }
