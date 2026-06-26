@@ -285,3 +285,29 @@ def test_analyze_raises_unavailable_on_empty_response():
     g = _make_gemma_with_fake_client(client)
     with pytest.raises(GemmaAnalyzerUnavailable):
         g.analyze(_make_item())
+
+
+def test_backfill_coerces_sloppy_enums_so_validation_survives():
+    """A 2B model emits 'serious'/'mixed signals'/'very high'; one bad enum word
+    must not drop the whole analysis."""
+    from tnmi.contracts import AIAnalysis, NormalizedItem, SourceType
+    from tnmi.local_llm import _backfill_defaults
+
+    item = NormalizedItem(
+        source_type=SourceType.NEWS, source_name="X", source_url="https://e.com/a",
+        language="ta", title="t", raw_text_original="body", clean_text_original="body",
+    )
+    payload = {
+        "government_relevance": "high", "stance_toward_government": "negative",
+        "tvk_relevance": "very high", "tvk_portrayal": "mixed signals",
+        "sentiment": "negative", "target": "TVK", "department": "Water",
+        "district": "unspecified", "topic": "dam", "issue_category": "people_concern",
+        "people_issue": True, "severity": "serious", "action_priority": "serious",
+        "summary_original": "s", "confidence": 0.7, "needs_human_review": False,
+    }
+    _backfill_defaults(payload, item)
+    analysis = AIAnalysis.model_validate(payload)  # must NOT raise
+    assert analysis.severity.value == "high"          # serious -> high
+    assert analysis.action_priority.value == "high"
+    assert analysis.tvk_relevance.value == "high"     # very high -> high
+    assert analysis.tvk_portrayal.value == "mixed"    # mixed signals -> mixed

@@ -524,3 +524,50 @@ def _backfill_defaults(payload: dict[str, Any], item: NormalizedItem) -> None:
     scheme_val = payload.get("scheme")
     if isinstance(scheme_val, str) and scheme_val.strip().lower() in _NULL_STRING_MARKERS:
         payload["scheme"] = None
+
+    # Coerce sloppy enum values (a 2B model emits "serious", "mixed signals",
+    # "very high"…) to the nearest valid member — otherwise ONE bad word makes
+    # Pydantic reject the whole analysis and the article is lost.
+    _coerce_enums(payload)
+
+
+_SEVERITY_VALID = {"low", "medium", "high", "critical"}
+_SEVERITY_SYNONYMS = {
+    "serious": "high", "severe": "critical", "grave": "critical", "major": "high",
+    "significant": "high", "moderate": "medium", "minor": "low", "trivial": "low",
+    "urgent": "critical", "emergency": "critical", "very high": "critical",
+    "very low": "low", "none": "low", "normal": "low",
+}
+_RELEVANCE_VALID = {"high", "medium", "low", "none"}
+_RELEVANCE_SYNONYMS = {
+    "very high": "high", "critical": "high", "moderate": "medium", "minimal": "low",
+    "very low": "low", "not relevant": "none", "na": "none", "n/a": "none", "irrelevant": "none",
+}
+_STANCE_VALID = {"positive", "negative", "neutral", "mixed"}
+_STANCE_SYNONYMS = {
+    "mixed signals": "mixed", "both": "mixed", "supportive": "positive", "favourable": "positive",
+    "favorable": "positive", "critical": "negative", "against": "negative", "unfavourable": "negative",
+    "unfavorable": "negative",
+}
+_SENTIMENT_VALID = {"positive", "negative", "neutral"}
+
+
+def _coerce_one(value: object, valid: set[str], synonyms: dict[str, str], default: str) -> str:
+    text = str(value or "").strip().lower()
+    if text in valid:
+        return text
+    return synonyms.get(text, default)
+
+
+def _coerce_enums(payload: dict) -> None:
+    payload["severity"] = _coerce_one(payload.get("severity"), _SEVERITY_VALID, _SEVERITY_SYNONYMS, "medium")
+    payload["action_priority"] = _coerce_one(
+        payload.get("action_priority"), _SEVERITY_VALID, _SEVERITY_SYNONYMS, payload["severity"]
+    )
+    for field in ("government_relevance", "tvk_relevance"):
+        if payload.get(field) is not None:
+            payload[field] = _coerce_one(payload.get(field), _RELEVANCE_VALID, _RELEVANCE_SYNONYMS, "low")
+    for field in ("stance_toward_government", "tvk_portrayal"):
+        if payload.get(field) is not None:
+            payload[field] = _coerce_one(payload.get(field), _STANCE_VALID, _STANCE_SYNONYMS, "neutral")
+    payload["sentiment"] = _coerce_one(payload.get("sentiment"), _SENTIMENT_VALID, _STANCE_SYNONYMS, "neutral")
