@@ -3701,3 +3701,7 @@ html[data-print-mode="1"] .intel-section { display: none; }
 .compare-vs-mid { font-size: var(--font-size-6); font-weight: 800; color: var(--muted); }
 .compare-verdict { grid-column: 1 / -1; text-align: center; font-size: var(--font-size-7); font-weight: 600; color: var(--ink); margin: 6px 0 0; padding-top: 10px; border-top: 1px solid var(--line); }
 @media (max-width: 560px) { .intel-compare-result { grid-template-columns: 1fr; } .compare-vs-mid { display: none; } }
+
+/* Uniform section spacing — main is a grid with gap:18px, so per-section vertical
+   margins just double the gaps (44-62px). Let the grid gap be the only spacer. */
+.main-shell > * { margin-top: 0; margin-bottom: 0; }
