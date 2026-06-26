@@ -802,14 +802,14 @@
         {% set max_day_total = trends.stance_timeseries|map(attribute='total')|max %}
         {% set max_dept_total = (trends.department_breakdown|map(attribute='total')|list|max) if trends.department_breakdown else 0 %}
         {% set max_dist_total = (trends.district_breakdown|map(attribute='total')|list|max) if trends.district_breakdown else 0 %}
-        <section id="trends" class="trends-panel" aria-label="Trends and breakdowns">
-          <header class="rubric compact">
+        <details id="trends" class="trends-panel is-collapsible" aria-label="Trends and breakdowns">
+          <summary class="rubric compact">
             <div class="rubric-text">
               <p class="rubric-kicker"><i class="fa-light fa-chart-line" aria-hidden="true"></i>&nbsp;Trends</p>
               <h2>Coverage at a glance &mdash; last 14 days</h2>
               <p class="rubric-lede">Stance over time and where the coverage is concentrated. Counts dedupe to one analysis per article.</p>
             </div>
-          </header>
+          </summary>
           <div class="trends-grid">
             <article class="trend-card trend-card--wide">
               <header class="trend-card-head">
@@ -898,17 +898,17 @@
               </div>
             </article>
           </div>
-        </section>
+        </details>
       {% endif %}
 
-      <section id="evidence" class="source-section">
-        <header class="rubric">
+      <details id="evidence" class="source-section is-collapsible">
+        <summary class="rubric">
           <div class="rubric-text">
             <p class="rubric-kicker">Source Mix</p>
             <h2>Newspaper Coverage</h2>
             <p class="rubric-lede">Distribution of evidence across the pilot newspaper rotation.</p>
           </div>
-        </header>
+        </summary>
         <div class="source-list">
           {% for source in summary.top_sources %}
             <div class="source-row">
@@ -922,7 +922,7 @@
             <p class="empty">No source coverage yet.</p>
           {% endfor %}
         </div>
-      </section>
+      </details>
 
     </main>
 

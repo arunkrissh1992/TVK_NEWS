@@ -3663,3 +3663,17 @@ html[data-print-mode="1"] .intel-section { display: none; }
 .tone-bad .daily-brief-dot { background: var(--danger); }
 .tone-watch .daily-brief-dot { background: var(--warning-500); }
 .daily-brief-text b { font-weight: 700; }
+
+/* Collapsible secondary sections (Trends, Source Mix) — native <details>, shorter default page */
+.is-collapsible { margin-bottom: 18px; }
+.is-collapsible > summary {
+  cursor: pointer; list-style: none; position: relative; padding-right: 32px;
+}
+.is-collapsible > summary::-webkit-details-marker { display: none; }
+.is-collapsible > summary::after {
+  content: "\203A"; position: absolute; right: 8px; top: 2px;
+  font-size: 22px; line-height: 1; color: var(--muted);
+  transform: rotate(90deg); transition: transform 0.15s ease;
+}
+.is-collapsible[open] > summary::after { transform: rotate(-90deg); }
+.is-collapsible > summary:hover::after { color: var(--ink); }
