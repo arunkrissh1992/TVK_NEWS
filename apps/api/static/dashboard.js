@@ -1759,10 +1759,65 @@
       });
     });
 
+    // Head-to-head: two pickers, side-by-side reputation. Reuses donut/spark.
+    function setupCompare(cards) {
+      const wrap = doc.getElementById("intel-compare");
+      const selA = doc.getElementById("compare-a");
+      const selB = doc.getElementById("compare-b");
+      const result = doc.getElementById("compare-result");
+      if (!wrap || !selA || !selB || !result || cards.length < 2) return;
+      const bySlug = {};
+      const opts = cards
+        .map(function (c) {
+          bySlug[c.slug] = c;
+          return '<option value="' + esc(c.slug) + '">' + esc(c.name) +
+            (c.party ? " (" + esc(c.party) + ")" : "") + "</option>";
+        })
+        .join("");
+      selA.innerHTML = opts;
+      selB.innerHTML = opts;
+      selA.selectedIndex = 0;
+      selB.selectedIndex = Math.min(1, cards.length - 1);
+
+      function panel(c) {
+        const fav = c.favorability;
+        const role = [c.role && c.role.replace(/_/g, " "), c.party].filter(Boolean).join(" · ");
+        return (
+          '<div class="compare-card">' +
+          '<div class="compare-name">' + esc(c.name) + (c.is_tvk ? ' <i class="intel-tvk">★</i>' : "") + "</div>" +
+          '<div class="compare-role">' + esc(role || "public figure") + "</div>" +
+          donut(c.portrayal_split, 96) +
+          '<div class="compare-fav ' + favClass(fav) + '">' + (fav == null ? "—" : fav) + "<small>favourability</small></div>" +
+          '<div class="compare-meta">' + c.mention_count + " mentions · " + c.mention_count_30d + " in 30d " + momentumBadge(c.momentum) + "</div>" +
+          '<div class="compare-spark">' + sparkline(c.timeseries) + "</div>" +
+          "</div>"
+        );
+      }
+      function render() {
+        const a = bySlug[selA.value], b = bySlug[selB.value];
+        if (!a || !b) { result.innerHTML = ""; return; }
+        let verdict = "";
+        if (a.favorability != null && b.favorability != null && a.slug !== b.slug) {
+          const diff = a.favorability - b.favorability;
+          const lead = diff > 0 ? a : b;
+          verdict = diff === 0 ? "Level on favourability." :
+            esc(lead.name) + " leads by " + Math.abs(diff) + " points on favourability.";
+        }
+        result.innerHTML = panel(a) + '<div class="compare-vs-mid">vs</div>' + panel(b) +
+          (verdict ? '<p class="compare-verdict">' + verdict + "</p>" : "");
+      }
+      selA.addEventListener("change", render);
+      selB.addEventListener("change", render);
+      render();
+      wrap.hidden = false;
+    }
+
     if (scorecards) {
-      api("/api/actors?limit=12").then(renderScorecards).catch(function () {
-        scorecards.innerHTML = '<p class="intel-empty">Could not load key figures.</p>';
-      });
+      api("/api/actors?limit=12")
+        .then(function (cards) { renderScorecards(cards); setupCompare(cards); })
+        .catch(function () {
+          scorecards.innerHTML = '<p class="intel-empty">Could not load key figures.</p>';
+        });
     }
     if (chips) {
       api("/api/entities?limit=60&entity_type=person").then(renderChips).catch(function () {

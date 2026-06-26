@@ -383,3 +383,16 @@ def test_compose_brief_is_empty_without_signals():
         emerging_signals=[], priority_alerts=[],
         district_summary={"tiles": []}, actors=[],
     ) == []
+
+
+def test_send_brief_render_text():
+    from pipelines.send_brief import render_text
+
+    txt = render_text([
+        {"tone": "good", "title": "TVK standing: 70/100", "detail": "all good"},
+        {"tone": "bad", "title": "Act now: roof collapse"},
+    ])
+    assert "TVK Intelligence Brief" in txt
+    assert "✅ TVK standing: 70/100 — all good" in txt
+    assert "🔴 Act now: roof collapse" in txt
+    assert render_text([]).rstrip().endswith("No notable signals today.")

@@ -3677,3 +3677,27 @@ html[data-print-mode="1"] .intel-section { display: none; }
 }
 .is-collapsible[open] > summary::after { transform: rotate(-90deg); }
 .is-collapsible > summary:hover::after { color: var(--ink); }
+
+/* Head-to-head compare — two figures side by side, reuses donut/spark */
+.intel-compare { background: #fff; border: 1px solid var(--line); border-radius: var(--radius-md); padding: 16px; margin-bottom: 22px; }
+.intel-compare-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.intel-compare-head h3 { margin: 0; font-size: var(--font-size-7); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-strong); }
+.intel-compare-picks { display: inline-flex; align-items: center; gap: 8px; }
+.compare-pick { padding: 6px 10px; font-size: var(--font-size-8); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-subtle); color: var(--ink); max-width: 220px; }
+.compare-vs { font-size: var(--font-size-9); font-weight: 700; color: var(--muted); }
+.intel-compare-result { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 14px; }
+.compare-card { text-align: center; padding: 10px; }
+.compare-card .donut { margin: 6px auto; }
+.compare-name { font-size: var(--font-size-5); font-weight: 800; color: var(--ink); }
+.compare-role { font-size: var(--font-size-9); color: var(--muted); text-transform: capitalize; margin-bottom: 4px; }
+.compare-fav { display: flex; flex-direction: column; align-items: center; font-size: var(--font-size-2); font-weight: 800; line-height: 1; }
+.compare-fav small { font-size: 9px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
+.compare-fav.fav-good { color: var(--success-700); }
+.compare-fav.fav-bad { color: var(--danger); }
+.compare-fav.fav-mid { color: var(--warning-700); }
+.compare-fav.fav-none { color: var(--muted); }
+.compare-meta { font-size: var(--font-size-9); color: var(--muted-strong); margin-top: 8px; }
+.compare-spark { color: var(--accent); margin-top: 6px; }
+.compare-vs-mid { font-size: var(--font-size-6); font-weight: 800; color: var(--muted); }
+.compare-verdict { grid-column: 1 / -1; text-align: center; font-size: var(--font-size-7); font-weight: 600; color: var(--ink); margin: 6px 0 0; padding-top: 10px; border-top: 1px solid var(--line); }
+@media (max-width: 560px) { .intel-compare-result { grid-template-columns: 1fr; } .compare-vs-mid { display: none; } }

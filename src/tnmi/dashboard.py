@@ -595,6 +595,24 @@ def compose_brief(
     return lines
 
 
+def build_daily_brief(session: Session, *, subject: str = "TVK") -> list[dict[str, Any]]:
+    """Assemble the inputs and compose the brief — one place the dashboard route
+    and the email/WhatsApp sender both call, so they never drift."""
+    from tnmi.districts import summarize_by_district
+    from tnmi.entity_api import actor_scorecards
+    from tnmi.signals import detect_spikes
+
+    latest = list_latest_items(session, limit=200)
+    return compose_brief(
+        summary=get_dashboard_summary(session),
+        emerging_signals=detect_spikes(session, limit=6),
+        priority_alerts=select_priority_alerts(latest, limit=5),
+        district_summary=summarize_by_district(latest),
+        actors=actor_scorecards(session, limit=8),
+        subject=subject,
+    )
+
+
 def invalidate_briefing_cache() -> None:
     """Called after an ingest writes new rows so the next dashboard hit
     rebuilds the briefing instead of serving stale data. Clears both the
